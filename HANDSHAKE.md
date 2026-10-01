@@ -8,6 +8,9 @@
 > 1. No crear otro documento de coordinación: todo vive en este archivo.
 > 2. Cada agente actualiza su sección y el tablero; no borrar el trabajo de otros.
 > 3. Las claves reales NUNCA se escriben aquí (solo qué falta / qué ya existe).
+> 4. Claves, códigos y datos sensibles viajan SOLO por el canal interno
+>    (chat "la centralita"), directo al `.env` local de quien los necesite.
+>    Nunca en el repo, nunca en memoria, nunca en logs, nunca expuestos.
 > 4. Cuando algo queda resuelto, márcalo `✅ RESUELTO (fecha)` con evidencia
 >    (commit, URL, medición).
 
