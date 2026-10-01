@@ -248,6 +248,32 @@ async def receive_call_event(
     return {"status": "broadcasted", "receivers": len(monitor_hub.active_connections)}
 
 
+@app.post("/api/docuseal/webhook")
+async def docuseal_webhook(payload: dict):
+    """Webhook para recibir eventos de contratos DocuSeal (firma completada, enviado, visto)."""
+    event_type = payload.get("event_type") or payload.get("type", "submission.updated")
+    submission = payload.get("data") or payload.get("submission") or payload
+    submission_id = submission.get("id") or submission.get("submission_id")
+    status = "FIRMADO" if event_type in ("submission.completed", "completed") else "ENVIADO"
+
+    logger.info(f"DocuSeal webhook recibido: evento={event_type}, id={submission_id}, status={status}")
+
+    # Actualizar estado en memoria
+    for lead in LEADS_DATABASE:
+        if lead.get("docuseal_id") == submission_id or lead.get("id") == submission_id:
+            lead["docuseal_status"] = status
+            lead["docuseal_signed_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Notificar a los paneles conectados vía WebSocket
+    await monitor_hub.broadcast({
+        "type": "docuseal_update",
+        "submission_id": submission_id,
+        "status": status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"status": "ok", "event": event_type, "docuseal_status": status}
+
+
 @app.get("/api/calls")
 async def get_calls():
     """Devuelve el historial de llamadas registradas."""
@@ -256,8 +282,85 @@ async def get_calls():
 
 @app.get("/api/leads")
 async def get_leads():
-    """Devuelve la bandeja de leads extraídos."""
-    return {"leads": LEADS_DATABASE, "count": len(LEADS_DATABASE)}
+    """Devuelve la bandeja de leads extraídos con sincronización desde persistencia."""
+    leads = list(LEADS_DATABASE)
+    # Si la lista en memoria está vacía, intentar hidratar desde la cola y caché local
+    if not leads:
+        queue_path = PROJECT_ROOT / "data" / "leads_queue.json"
+        synced_path = PROJECT_ROOT / "data" / "leads_synced.json"
+        if queue_path.exists():
+            try:
+                with open(queue_path, "r", encoding="utf-8") as f:
+                    q_data = json.load(f)
+                    for item in q_data:
+                        lead = item.get("lead")
+                        if lead and lead not in leads:
+                            leads.append(lead)
+            except Exception:
+                pass
+        if synced_path.exists():
+            try:
+                with open(synced_path, "r", encoding="utf-8") as f:
+                    s_data = json.load(f)
+                    for _, val in s_data.items():
+                        lead_info = val.get("data")
+                        if lead_info and isinstance(lead_info, list) and len(lead_info) >= 8:
+                            lead_obj = {
+                                "id": lead_info[0],
+                                "timestamp_lux": lead_info[1],
+                                "nombre": lead_info[2],
+                                "telefono": lead_info[3],
+                                "email": lead_info[4],
+                                "empresa": lead_info[5],
+                                "motivo": lead_info[6],
+                                "detalles": lead_info[7],
+                                "valor_eur": lead_info[8] if len(lead_info) > 8 else "2.500 €",
+                                "docuseal_status": lead_info[10] if len(lead_info) > 10 else "BORRADOR",
+                            }
+                            if not any(l.get("id") == lead_obj["id"] for l in leads):
+                                leads.append(lead_obj)
+            except Exception:
+                pass
+    return {"leads": leads, "count": len(leads)}
+
+
+@app.get("/api/system/internal")
+async def get_internal_system_status():
+    """Panel de control interno: ahorro en tiempo, ahorro financiero y métricas de infraestructura."""
+    # Métricas de ahorro calculadas contra salario recepcionista Luxemburgo (~3.200 €/mes = ~22 €/hora)
+    total_calls = len(CALLS_DATABASE)
+    total_leads = len(LEADS_DATABASE)
+    # Estimación: cada llamada atendida + gestión de lead ahorra 15 minutos de trabajo manual
+    horas_ahorradas = round((total_calls * 15) / 60, 2)
+    ahorro_euros = round(horas_ahorradas * 22.0, 2)
+    costo_ia_total = round(total_calls * 0.00445, 4)
+
+    queue_path = PROJECT_ROOT / "data" / "leads_queue.json"
+    queue_count = 0
+    if queue_path.exists():
+        try:
+            with open(queue_path, "r", encoding="utf-8") as f:
+                queue_count = len(json.load(f))
+        except Exception:
+            pass
+
+    return {
+        "sistema": "La Centralita NOC Internal Metrics",
+        "tiempo_ahorrado_horas": horas_ahorradas,
+        "dinero_ahorrado_eur": ahorro_euros,
+        "costo_ia_acumulado_usd": costo_ia_total,
+        "llamadas_totales_atendidas": total_calls,
+        "leads_convertidos": total_leads,
+        "leads_en_cola_sheets": queue_count,
+        "infraestructura": {
+            "webrtc": "LiveKit Cloud (Build Tier)",
+            "stt": "Deepgram Nova-3 (Latencia ~180ms)",
+            "llm": "DeepSeek V3 (Chat API)",
+            "tts": "Piper TTS (Local ONNX, $0 cost)",
+            "crm": "Twenty CRM",
+            "firmas": "DocuSeal eIDAS",
+        }
+    }
 
 
 @app.post("/api/test-webhook")
@@ -265,9 +368,9 @@ async def test_webhook():
     """Envía un lead de prueba simulado directamente a n8n para verificar el flujo."""
     processor = PostCallProcessor()
     sample_transcript = [
-        {"role": "assistant", "text": "¡Hola! Gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?"},
-        {"role": "user", "text": "Hola Sofía, me llamo Carlos Mendoza y busco cotizar iluminación y DJ para una gala corporativa en Kirchberg el 18 de noviembre para 150 invitados. Mi teléfono es +352 691 452 890."},
-        {"role": "assistant", "text": "¡Qué maravilla de evento, Carlos! Tenemos equipos de audio line-array y diseño de iluminación ideales para salones en Kirchberg. Nuestro equipo técnico te contactará hoy mismo con el dossier detallado."},
+        {"role": "assistant", "text": "¡Hola! Gracias por llamar a WELUX en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?"},
+        {"role": "user", "text": "Hola Sofía, me llamo Carlos Mendoza y busco cotizar un fotoespejo para un evento corporativo en Kirchberg el 18 de noviembre para 150 invitados. Mi teléfono es +352 691 452 890."},
+        {"role": "assistant", "text": "¡Excelente, Carlos! Tenemos paquetes con impresiones ilimitadas y plantillas personalizadas. Te enviamos la propuesta y el borrador de reserva de inmediato."},
     ]
     result = await processor.process_call_ended(
         room_name="test-simulado-sofia",
@@ -276,6 +379,19 @@ async def test_webhook():
         transcript_history=sample_transcript,
         metrics={"tipo": "simulacion_directa"},
     )
+    # Guardar en memoria para que aparezca en el panel
+    if result.get("lead"):
+        LEADS_DATABASE.append(result["lead"])
+    CALLS_DATABASE.append({
+        "type": "call_ended",
+        "call_id": f"call-{int(datetime.now(timezone.utc).timestamp())}",
+        "room": "test-simulado-sofia",
+        "duration": "00:46",
+        "transcript": sample_transcript,
+        "lead": result.get("lead"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
     # Notificar a los monitores conectados
     await monitor_hub.broadcast({
         "type": "call_ended",
@@ -284,7 +400,7 @@ async def test_webhook():
         "transcript": sample_transcript,
         "lead": result.get("lead"),
     })
-    return {"message": "Webhook de prueba enviado a n8n", "payload": result}
+    return {"message": "Webhook de prueba procesado exitosamente", "payload": result}
 
 
 # Servir el monitor web del cliente en /panel

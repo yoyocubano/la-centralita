@@ -191,7 +191,97 @@ Sofía: Perfecto Marc, bloqueamos la fecha provisional y te enviamos el presupue
   }
 }
 
-const dataProvider = new MockCentralitaProvider();
+class HybridCentralitaProvider extends MockCentralitaProvider {
+  constructor() {
+    super();
+    this.apiAvailable = null;
+  }
+
+  async checkApi() {
+    if (this.apiAvailable !== null) return this.apiAvailable;
+    try {
+      const res = await fetch("/api/status", { method: "GET", headers: { "Accept": "application/json" } });
+      this.apiAvailable = res.ok;
+    } catch {
+      this.apiAvailable = false;
+    }
+    return this.apiAvailable;
+  }
+
+  async getCallsHistory() {
+    if (await this.checkApi()) {
+      try {
+        const res = await fetch("/api/calls");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.calls && data.calls.length > 0) {
+            const mapped = data.calls.map(c => ({
+              id: c.call_id || c.id || "call-" + Math.random().toString(36).substr(2, 6),
+              date: c.timestamp ? new Date(c.timestamp).toLocaleString("es-ES", { timeZone: "Europe/Luxembourg" }) : "Reciente",
+              client: (c.lead && c.lead.nombre) || c.client || "Cliente Web",
+              phone: (c.lead && c.lead.telefono) || c.phone || "No especificado",
+              duration: c.duration || "01:30",
+              operator: "Sofía (IA)",
+              reason: (c.lead && c.lead.motivo) || c.reason || "Consulta comercial",
+              hasLead: Boolean(c.lead),
+              transcript: typeof c.transcript === "string" ? c.transcript : JSON.stringify(c.transcript || []),
+            }));
+            const mockCalls = await super.getCallsHistory();
+            const allCalls = [...mapped];
+            for (const mc of mockCalls) {
+              if (!allCalls.some(ac => ac.phone === mc.phone || ac.id === mc.id)) {
+                allCalls.push(mc);
+              }
+            }
+            return allCalls;
+          }
+        }
+      } catch (e) {
+        console.warn("[DataProvider] Error consultando /api/calls, recurriendo a local:", e);
+      }
+    }
+    return super.getCallsHistory();
+  }
+
+  async getLeads() {
+    if (await this.checkApi()) {
+      try {
+        const res = await fetch("/api/leads");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.leads && data.leads.length > 0) {
+            const mapped = data.leads.map((l, idx) => ({
+              id: l.id || `lead-api-${idx}`,
+              name: l.nombre || l.name || "Contacto",
+              phone: l.telefono || l.phone || "No indicado",
+              company: l.empresa || l.company || "Empresa / Particular",
+              interest: l.motivo || l.interest || "Consulta",
+              eventDate: l.fecha_evento || l.eventDate || "A convenir",
+              stage: l.stage || "nuevo",
+              summary: l.detalles || l.summary || "Capturado en llamada telefónica",
+              timestamp: l.timestamp_lux || l.timestamp || "Hoy",
+              docusealStatus: l.docuseal_status || "BORRADOR",
+              docusealUrl: l.docuseal_url || null,
+            }));
+            const mockLeads = await super.getLeads();
+            const allLeads = [...mapped];
+            for (const ml of mockLeads) {
+              if (!allLeads.some(al => al.phone === ml.phone || al.id === ml.id)) {
+                allLeads.push(ml);
+              }
+            }
+            return allLeads;
+          }
+        }
+      } catch (e) {
+        console.warn("[DataProvider] Error consultando /api/leads, recurriendo a local:", e);
+      }
+    }
+    return super.getLeads();
+  }
+}
+
+const dataProvider = new HybridCentralitaProvider();
 
 // ==============================================================================
 // 2. CONEXIÓN WEBSOCKET AL BACKEND
@@ -270,7 +360,27 @@ function handleIncomingBackendEvent(event) {
   } else if (event.type === "call_ended") {
     if (event.lead) {
       updateExtractedLeadCard(event.lead);
+      const newLead = {
+        id: event.lead.id || "lead-" + Date.now(),
+        name: event.lead.nombre || "Contacto",
+        phone: event.lead.telefono || "No indicado",
+        company: event.lead.empresa || "Empresa / Particular",
+        interest: event.lead.motivo || "Servicios",
+        eventDate: event.lead.fecha_evento || "A convenir",
+        stage: "nuevo",
+        summary: event.lead.detalles || "Registrado en llamada",
+        timestamp: "Ahora mismo",
+        docusealStatus: event.lead.docuseal_status || "BORRADOR",
+      };
+      dataProvider.saveNewLead(newLead);
+      renderLeadsTable();
+      renderKanbanBoard();
     }
+    renderCallsTable();
+  } else if (event.type === "docuseal_update") {
+    console.log("[Monitor] Actualización de contrato DocuSeal:", event);
+    renderLeadsTable();
+    renderKanbanBoard();
   }
 }
 
