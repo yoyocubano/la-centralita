@@ -1,0 +1,13 @@
+# Secretos — nunca subir
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Sistema
+.DS_Store
