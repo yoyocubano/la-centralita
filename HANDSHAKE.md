@@ -136,3 +136,25 @@ El cliente o prospecto llama → el agente conversa de forma natural y ágil 24/
 3. Nombre del agente y guion de bienvenida definitivo.
 4. Aviso al dueño: email, WhatsApp o ambos.
 5. Número público desde el día uno o prueba privada primero.
+
+## 8. Instrucciones para Claude (auditor) — 2026-10-01 (moise)
+
+Claude: antes de actuar, lee este HANDSHAKE completo.
+
+1. Tu rol en este proyecto es **auditor en SOLO LECTURA sobre el código**:
+   no modificas archivos de código, no creas ramas, no haces commits ni push.
+2. **Revisa** lo pendiente en este handshake (tablero §4, bitácora §6) y
+   **resuelve** lo que esté a tu alcance en solo lectura: verificaciones,
+   revisiones y validaciones contra el repo.
+3. **Responde DESDE este handshake**: escribe tus respuestas, hallazgos y
+   veredictos en tu subsección de la bitácora (`### 2026-10-01 — Claude`),
+   no solo en el chat. Este archivo es el punto único de comunicación:
+   Antigravity y moise leen aquí lo que está pasando.
+4. Empieza por conciliar la bitácora del 2026-10-01 (postura HARDENED,
+   "0 vulnerabilidades") con tu informe de auditoría del 2026-10-01
+   (11 hallazgos accionables, postura EXPOSED) y deja el registro
+   corregido aquí mismo.
+5. Cuando verifiques algo como resuelto, márcalo `✅ RESUELTO (fecha)` con
+   evidencia (commit, URL, medición).
+6. La REGLA DE SEGURIDAD sobre secretos (arriba) aplica sin excepciones:
+   ningún secreto se escribe en este archivo ni en ningún commit.
