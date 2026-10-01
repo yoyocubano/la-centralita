@@ -1,169 +1,41 @@
 {
-  "audit_version": "1.0.0",
-  "audit_engine": "cloudflare/security-audit-skill",
+  "audit_version": "2.0.0",
   "target": "yoyocubano/la-centralita",
-  "repository_url": "https://github.com/yoyocubano/la-centralita",
-  "audit_date": "2026-10-01T14:30:00Z",
-  "framework_phases": [
-    {
-      "phase": 1,
-      "name": "Reconnaissance",
-      "status": "COMPLETED",
-      "attack_surfaces_identified": [
-        "WebRTC Audio Ingress (LiveKit SFU)",
-        "Post-call Webhook Egress (n8n Cloud)",
-        "Local TTS IPC (Piper ONNX Runtime)",
-        "Client Monitor Web UI (GitHub Pages static hosting)",
-        "JWT Token Issuance (make_token.py)"
-      ]
-    },
-    {
-      "phase": 2,
-      "name": "Coverage Tracking",
-      "status": "COMPLETED",
-      "coverage_ledger_file": "security/coverage-ledger.json",
-      "files_scanned": [
-        "agent/agent.py",
-        "agent/prompts.py",
-        "agent/piper_tts.py",
-        "agent/lead_extract.py",
-        "agent/make_token.py",
-        "panel/index.html",
-        "panel/app.js",
-        "panel/style.css"
-      ],
-      "coverage_percentage": 100
-    },
-    {
-      "phase": 3,
-      "name": "Hunting & Vector Analysis",
-      "status": "COMPLETED",
-      "hunting_vectors": [
-        {
-          "vector": "CWE-798: Use of Hardcoded Credentials",
-          "result": "PASSED",
-          "details": "All credentials (LiveKit, Deepgram, DeepSeek, n8n) managed via gitignored .env and environment variables."
-        },
-        {
-          "vector": "CWE-79: Improper Neutralization of Input (XSS)",
-          "result": "PASSED",
-          "details": "Monitor panel uses textContent or strict DOM binding for dynamic user transcripts; no unescaped innerHTML injections."
-        },
-        {
-          "vector": "CWE-918: Server-Side Request Forgery (SSRF)",
-          "result": "PASSED",
-          "details": "n8n dispatcher targets validated HTTPS webhook endpoint exclusively."
-        },
-        {
-          "vector": "AI Safety / Prompt Injection & System Exfiltration",
-          "result": "PASSED",
-          "details": "System prompts in agent/prompts.py enforce strict identity boundary (Sofía) with instruction priority shielding."
-        },
-        {
-          "vector": "WebRTC Token TTL & Room Grants Exposure",
-          "result": "PASSED",
-          "details": "Tokens issued by make_token.py have strict 1-hour expiration (TTL) and non-administrative room_join grants."
-        },
-        {
-          "vector": "Data Protection & GDPR (Luxembourg eIDAS / PII Scrubbing)",
-          "result": "PASSED",
-          "details": "Transcripts store minimal business contact information for event quoting; audio streams are non-persisted on public endpoints."
-        }
-      ]
-    },
-    {
-      "phase": 4,
-      "name": "Candidate Validation & Disproval",
-      "status": "COMPLETED",
-      "disproved_findings": [
-        {
-          "candidate_id": "CAND-001",
-          "description": "Potential token exposure in make_token.py",
-          "validation_outcome": "DISPROVED",
-          "reason": "make_token.py strictly reads environment variables and executes in local CLI context, never deployed to public web root."
-        },
-        {
-          "candidate_id": "CAND-002",
-          "description": "Twilio SIP dependency vulnerability",
-          "validation_outcome": "DISPROVED",
-          "reason": "Twilio is strictly forbidden by architecture rules; no twilio packages or libraries exist in dependencies."
-        }
-      ]
-    },
-    {
-      "phase": 5,
-      "name": "Findings & Severity Classification",
-      "status": "COMPLETED",
-      "total_findings": 0,
-      "critical": 0,
-      "high": 0,
-      "medium": 0,
-      "low": 0,
-      "security_posture": "HARDENED_EXCELLENT",
-      "resolved_audit_findings": [
-        {
-          "id": "H-001",
-          "severity": "MEDIUM",
-          "component": "server/app.py",
-          "title": "CORS Wildcard + Allow Credentials",
-          "status": "RESOLVED",
-          "remediation": "Restricted allow_origins to GitHub Pages and local origins, disabled allow_credentials, restricted methods and headers."
-        },
-        {
-          "id": "H-002",
-          "severity": "CRITICAL",
-          "component": "server/app.py",
-          "title": "Token Endpoint Sin Autenticación",
-          "status": "RESOLVED",
-          "remediation": "Added mandatory Authorization header check with Bearer token validation and strict room scope whitelisting (401/403)."
-        },
-        {
-          "id": "H-003",
-          "severity": "CRITICAL",
-          "component": "server/app.py",
-          "title": "POST /api/call-event Sin Autenticación + XSS Combinado",
-          "status": "RESOLVED",
-          "remediation": "Added mandatory Authorization header check and strict event payload schema whitelist rejecting unknown keys with 400."
-        },
-        {
-          "id": "H-004",
-          "severity": "HIGH",
-          "component": "server/app.py",
-          "title": "WebSocket /ws/monitor Sin Autenticación",
-          "status": "RESOLVED",
-          "remediation": "Added token query parameter validation before connection accept; closes unauthorized connections with code 4001."
-        },
-        {
-          "id": "H-005",
-          "severity": "MEDIUM",
-          "component": "agent/post_call.py & agent/agent.py",
-          "title": "Transcripciones a n8n Sin Filtrado de PII",
-          "status": "RESOLVED",
-          "remediation": "Implemented redact_pii() to scrub phones and emails, and sha256 lead_hash dispatched to external webhook."
-        },
-        {
-          "id": "H-006",
-          "severity": "MEDIUM",
-          "component": ".env.example & agent/.env.example",
-          "title": "n8n Webhook URL Expuesta en .env.example",
-          "status": "RESOLVED",
-          "remediation": "Replaced real webhook URL with safe template placeholder."
-        },
-        {
-          "id": "H-007",
-          "severity": "HIGH",
-          "component": "panel/app.js & index.html",
-          "title": "XSS en panel/app.js vía innerHTML + Event Injection",
-          "status": "RESOLVED",
-          "remediation": "Eliminated all dynamic template string innerHTML assignments, replaced with safe DOM construction and textContent."
-        }
-      ]
-    },
-    {
-      "phase": 6,
-      "name": "Reporting",
-      "status": "COMPLETED",
-      "report_file": "docs/SECURITY_AUDIT.md"
-    }
-  ]
+  "branch": "feature/centralita-voz",
+  "audit_date": "2026-10-01",
+  "audited_commit": "32fd8b4",
+  "report_file": "docs/SECURITY_AUDIT.md",
+  "posture_before": "EXPOSED",
+  "posture_after": "HARDENED_WITH_OWNER_ACTIONS_PENDING",
+  "previous_findings": {
+    "H-001": "PARTIAL->FIXED",
+    "H-002": "NOT_FIXED(CRITICAL)->FIXED",
+    "H-003": "NOT_FIXED(CRITICAL)->FIXED",
+    "H-004": "NOT_FIXED(HIGH)->FIXED",
+    "H-005": "PARTIAL->FIXED",
+    "H-006": "PARTIAL->FIXED_IN_TREE(ROTATION_PENDING)",
+    "H-007": "CONFIRMED_FIXED",
+    "H-008..H-011": "NOT_IN_REPO(UNVERIFIABLE)"
+  },
+  "new_findings": {
+    "critical": 1,
+    "high": 4,
+    "medium": 7,
+    "low": 4,
+    "info": 1,
+    "status": "FIXED"
+  },
+  "owner_actions_pending": [
+    "Rotar ruta del webhook n8n (historial git)",
+    "Configurar CENTRALITA_AUTH_TOKEN, N8N_WEBHOOK_SECRET, DOCUSEAL_WEBHOOK_SECRET",
+    "Configurar SMTP y vaciar data/email_outbox.jsonl",
+    "Ejecutar scripts/repair_sheet_phones.py --apply",
+    "Desplegar backend y fijar panel/config.js apiBase",
+    "Levantar servidor CosyVoice 3"
+  ],
+  "tests": {
+    "count": 97,
+    "result": "PASS",
+    "command": "python -m pytest"
+  }
 }
