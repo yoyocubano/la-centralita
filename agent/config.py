@@ -39,6 +39,28 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+def is_serverless() -> bool:
+    """True en Vercel (define VERCEL=1) o si se fuerza con CENTRALITA_SERVERLESS=1."""
+    return bool(os.getenv("VERCEL")) or _env_bool("CENTRALITA_SERVERLESS", False)
+
+
+def resolve_data_dir() -> Path:
+    """Carpeta de datos locales (cola de Sheets, bandeja de email, solicitudes de cita).
+
+    CENTRALITA_DATA_DIR tiene prioridad. En serverless el código es de solo lectura y
+    solo /tmp es escribible (y efímero, por instancia): ahí se degrada por defecto.
+    """
+    explicit = os.getenv("CENTRALITA_DATA_DIR", "").strip()
+    if explicit:
+        return Path(explicit)
+    if is_serverless():
+        return Path("/tmp") / "la-centralita-data"
+    return ROOT_DIR / "data"
+
+
+DATA_DIR = resolve_data_dir()
+
+
 class Config:
     # LiveKit
     LIVEKIT_URL = os.getenv("LIVEKIT_URL", "")
@@ -85,6 +107,9 @@ class Config:
 
     # URL del backend que usa el worker de voz para emitir eventos al panel en vivo.
     CENTRALITA_API_URL = os.getenv("CENTRALITA_API_URL", "")
+
+    # Despliegue serverless (Vercel): sin WebSocket persistente ni disco duradero.
+    SERVERLESS = is_serverless()
 
     @classmethod
     def auth_token_is_strong(cls) -> bool:

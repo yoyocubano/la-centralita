@@ -33,6 +33,7 @@ def isolated_env(tmp_path, monkeypatch):
     server_app.demo_token_limiter.reset()
     server_app.CALLS_DATABASE.clear()
     server_app.LEADS_DATABASE.clear()
+    server_app.EVENT_LOG.clear()
     yield
 
 

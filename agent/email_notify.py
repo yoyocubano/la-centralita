@@ -8,8 +8,10 @@ Garantías:
 - El asunto se limpia de saltos de línea (sin inyección de cabeceras).
 - El envío SMTP corre en un hilo (no bloquea el event loop del servidor).
 - Si SMTP no está configurado o falla, el correo se guarda en una bandeja de salida
-  local (data/email_outbox.jsonl) para reenviarlo con `scripts/flush_email_outbox.py`;
+  local (<DATA_DIR>/email_outbox.jsonl) para reenviarlo con `scripts/flush_email_outbox.py`;
   el estado devuelto lo declara (QUEUED_NO_SMTP / QUEUED_SMTP_ERROR), nunca "SENT".
+- Si además el disco no es escribible (serverless), no se lanza excepción: el estado
+  pasa a NOT_PERSISTED_NO_SMTP / NOT_PERSISTED_SMTP_ERROR para que nadie lo dé por enviado.
 """
 
 import asyncio
@@ -22,12 +24,13 @@ import ssl
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from pathlib import Path
 from typing import Any, Dict
+
+from agent.config import DATA_DIR
 
 logger = logging.getLogger("la-centralita.email_notify")
 
-OUTBOX_FILE = Path(__file__).resolve().parent.parent / "data" / "email_outbox.jsonl"
+OUTBOX_FILE = DATA_DIR / "email_outbox.jsonl"
 
 
 def _one_line(value: Any, limit: int = 200) -> str:
@@ -166,10 +169,15 @@ WELUX Events S.à r.l. · Luxemburgo
 
         return text_body, html_body
 
-    def _write_outbox(self, entry: Dict[str, Any]) -> None:
-        OUTBOX_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(OUTBOX_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    def _write_outbox(self, entry: Dict[str, Any]) -> bool:
+        try:
+            OUTBOX_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(OUTBOX_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            return True
+        except OSError as exc:
+            logger.error("Bandeja de salida local no disponible (%s): notificación no persistida.", type(exc).__name__)
+            return False
 
     def _send_smtp(self, subject: str, text_content: str, html_content: str) -> None:
         msg = MIMEMultipart("alternative")
@@ -203,7 +211,8 @@ WELUX Events S.à r.l. · Luxemburgo
         }
 
         if not self.is_configured:
-            self._write_outbox(outbox_entry)
+            if not self._write_outbox(outbox_entry):
+                return {"status": "NOT_PERSISTED_NO_SMTP", "recipient": self.recipient, "subject": subject}
             logger.warning("SMTP no configurado: notificación guardada en bandeja de salida local.")
             return {"status": "QUEUED_NO_SMTP", "recipient": self.recipient, "subject": subject}
 
@@ -212,6 +221,6 @@ WELUX Events S.à r.l. · Luxemburgo
             logger.info("Notificación post-llamada enviada a %s", self.recipient)
             return {"status": "SENT", "recipient": self.recipient, "subject": subject}
         except Exception as e:
-            self._write_outbox(outbox_entry)
-            logger.error("Error SMTP (%s); notificación guardada en bandeja de salida.", type(e).__name__)
-            return {"status": "QUEUED_SMTP_ERROR", "error": type(e).__name__, "recipient": self.recipient}
+            status = "QUEUED_SMTP_ERROR" if self._write_outbox(outbox_entry) else "NOT_PERSISTED_SMTP_ERROR"
+            logger.error("Error SMTP (%s); estado de la notificación: %s.", type(e).__name__, status)
+            return {"status": status, "error": type(e).__name__, "recipient": self.recipient}

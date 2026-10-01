@@ -334,6 +334,7 @@ async function bootstrapMode() {
 }
 
 function enterDemoMode(message, tone = "warning") {
+  eventPoller.stop();
   provider = new DemoProvider();
   setMode("demo", message, tone);
   updateConnectionPill("MODO DEMO", "standby", "— ms");
@@ -348,7 +349,12 @@ function enterLiveMode(details) {
   resetLiveCallView();
   renderServiceStatus(details);
   refreshAll();
-  monitorSocket.connect();
+  // Backend serverless (o transporte forzado en config.js): sin WebSocket, polling HTTP.
+  if (details.realtime_transport === "polling" || CONFIG.transport === "polling") {
+    eventPoller.start();
+  } else {
+    monitorSocket.connect();
+  }
   startPolling();
 }
 
@@ -387,6 +393,8 @@ class MonitorSocket {
     this.heartbeatTimer = null;
     this.pingSentAt = null;
     this.stopped = false;
+    this.everConnected = false;
+    this.failedOpens = 0;
   }
 
   url() {
@@ -429,10 +437,16 @@ class MonitorSocket {
         this.stopped = true;
         return;
       }
-      if (!this.stopped) {
-        updateConnectionPill("RECONECTANDO…", "standby");
-        this.scheduleReconnect();
+      if (this.stopped) return;
+      // Sin WebSocket disponible (backend serverless, proxy que no hace upgrade):
+      // tras 2 intentos que nunca llegaron a autenticarse se pasa a polling HTTP.
+      if (!this.everConnected && ++this.failedOpens >= 2) {
+        this.stopped = true;
+        eventPoller.start();
+        return;
       }
+      updateConnectionPill("RECONECTANDO…", "standby");
+      this.scheduleReconnect();
     };
     this.ws.onerror = () => { /* onclose gestiona el reintento */ };
   }
@@ -440,6 +454,7 @@ class MonitorSocket {
   handle(msg) {
     if (msg.type === "connection_established") {
       this.attempt = 0;
+      this.everConnected = true;
       updateConnectionPill("EN VIVO", "ok");
       if (state.mode === "live") setMode("live", "", "info");
       this.startHeartbeat();
@@ -495,6 +510,66 @@ window.addEventListener("online", () => monitorSocket.reconnectNow());
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) monitorSocket.reconnectNow();
 });
+
+/**
+ * Alternativa al WebSocket para backends serverless (Vercel): GET /api/events con
+ * cursor. El backend devuelve `instance`; si cambia (arranque en frío u otra
+ * instancia) responde reset=true y el cursor se reinicia.
+ */
+class EventPoller {
+  constructor() {
+    this.timer = null;
+    this.running = false;
+    this.cursor = 0;
+    this.instance = "";
+    this.primed = false;
+  }
+
+  start() {
+    if (this.running || API_BASE === null || !getToken()) return;
+    this.running = true;
+    this.primed = false;
+    updateConnectionPill("EN VIVO · POLLING", "ok");
+    this.tick();
+  }
+
+  stop() {
+    this.running = false;
+    clearTimeout(this.timer);
+    this.timer = null;
+  }
+
+  async tick() {
+    if (!this.running) return;
+    const params = new URLSearchParams({ since: String(this.cursor) });
+    if (this.instance) params.set("instance", this.instance);
+    const startedAt = performance.now();
+    try {
+      const res = await apiFetch(`/api/events?${params}`);
+      const rtt = Math.round(performance.now() - startedAt);
+      setText("liveLatencyBadge", `${rtt} ms (polling)`);
+      setText("kpiRtt", `${rtt} ms`);
+      // El primer sondeo solo fija el cursor: no se reproduce el histórico (igual que el WebSocket).
+      if (this.primed) (res.events || []).forEach(handleIncomingBackendEvent);
+      this.instance = res.instance || "";
+      this.cursor = Number(res.cursor) || 0;
+      this.primed = true;
+      updateConnectionPill("EN VIVO · POLLING", "ok");
+    } catch (err) {
+      if (err.status === 401 || err.status === 403) {
+        this.stop();
+        storageRemove(sessionStorage, TOKEN_KEY);
+        enterDemoMode("El backend rechazó el token de operador. Introduce un token válido.", "error");
+        return;
+      }
+      updateConnectionPill("RECONECTANDO…", "standby");
+    }
+    const visibleMs = Math.max(2000, Number(CONFIG.pollIntervalMs) || 5000);
+    if (this.running) this.timer = setTimeout(() => this.tick(), document.hidden ? Math.max(visibleMs, 15000) : visibleMs);
+  }
+}
+
+const eventPoller = new EventPoller();
 
 function handleIncomingBackendEvent(event) {
   switch (event.type) {

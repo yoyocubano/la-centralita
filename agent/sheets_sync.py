@@ -2,7 +2,9 @@
 
 Capacidades:
 - Escritura idempotente con reintentos y retroceso exponencial (sin bloquear el event loop).
-- Cola local persistente en 'data/leads_queue.json' si la API falla o no está configurada.
+- Cola local en '<DATA_DIR>/leads_queue.json' si la API falla o no está configurada
+  (en serverless DATA_DIR vive en /tmp: efímera; si el disco no es escribible se
+  registra el fallo y se continúa sin cola, nunca se rompe la petición).
 - Formato horario estricto en zona horaria 'Europe/Luxembourg'.
 - Escritura en modo RAW: los teléfonos "+352 ..." se guardan como texto literal
   (nunca se interpretan como fórmula -> sin '#ERROR!').
@@ -27,8 +29,9 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("la-centralita.sheets_sync")
 
+from agent.config import DATA_DIR
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
 QUEUE_FILE = DATA_DIR / "leads_queue.json"
 SYNCED_CACHE_FILE = DATA_DIR / "leads_synced.json"
 
@@ -42,13 +45,18 @@ PHONE_NEEDS_REPAIR = "⚠ Revisar en Sheet (#ERROR!)"
 READ_CACHE_TTL_SECONDS = 10.0
 
 
-def ensure_data_dirs():
-    """Garantiza la existencia de la carpeta de almacenamiento de datos."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not QUEUE_FILE.exists():
-        QUEUE_FILE.write_text("[]", encoding="utf-8")
-    if not SYNCED_CACHE_FILE.exists():
-        SYNCED_CACHE_FILE.write_text("{}", encoding="utf-8")
+def ensure_data_dirs() -> bool:
+    """Garantiza la carpeta de datos. Devuelve False (sin lanzar) si el disco no es escribible."""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if not QUEUE_FILE.exists():
+            QUEUE_FILE.write_text("[]", encoding="utf-8")
+        if not SYNCED_CACHE_FILE.exists():
+            SYNCED_CACHE_FILE.write_text("{}", encoding="utf-8")
+        return True
+    except OSError as exc:
+        logger.warning("Almacenamiento local no disponible (%s): sin cola persistente.", type(exc).__name__)
+        return False
 
 
 def clean_cell_text(value: Any) -> str:
@@ -156,9 +164,14 @@ class GoogleSheetsSync:
         except Exception:
             return []
 
-    def save_queue(self, queue: List[Dict[str, Any]]) -> None:
-        with open(QUEUE_FILE, "w", encoding="utf-8") as f:
-            json.dump(queue, f, indent=2, ensure_ascii=False)
+    def save_queue(self, queue: List[Dict[str, Any]]) -> bool:
+        try:
+            with open(QUEUE_FILE, "w", encoding="utf-8") as f:
+                json.dump(queue, f, indent=2, ensure_ascii=False)
+            return True
+        except OSError as exc:
+            logger.error("No se pudo guardar la cola local de leads (%s).", type(exc).__name__)
+            return False
 
     def load_synced_cache(self) -> Dict[str, Any]:
         try:
@@ -172,18 +185,24 @@ class GoogleSheetsSync:
         # no se duplica en disco (minimización RGPD).
         cache = self.load_synced_cache()
         cache[lead_id] = {"synced_at": self.get_luxembourg_now()}
-        with open(SYNCED_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(cache, f, indent=2, ensure_ascii=False)
+        try:
+            with open(SYNCED_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(cache, f, indent=2, ensure_ascii=False)
+        except OSError as exc:
+            # El lead YA está en el Sheet; solo se pierde la marca de idempotencia local.
+            logger.warning("No se pudo guardar la marca de sincronización (%s).", type(exc).__name__)
 
     def is_already_synced(self, lead_id: str) -> bool:
         cache = self.load_synced_cache()
         return lead_id in cache
 
-    def _enqueue(self, lead_id: str, lead_data: Dict[str, Any], row: List[Any]) -> None:
+    def _enqueue(self, lead_id: str, lead_data: Dict[str, Any], row: List[Any]) -> bool:
+        """Encola el lead. False si no se pudo persistir (disco no escribible)."""
         queue = self.load_queue()
-        if not any((item.get("lead") or {}).get("id") == lead_id for item in queue):
-            queue.append({"lead": lead_data, "row": row, "queued_at": self.get_luxembourg_now()})
-            self.save_queue(queue)
+        if any((item.get("lead") or {}).get("id") == lead_id for item in queue):
+            return True
+        queue.append({"lead": lead_data, "row": row, "queued_at": self.get_luxembourg_now()})
+        return self.save_queue(queue)
 
     async def sync_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
         """Punto de entrada principal para escribir un lead con reintentos y cola."""
@@ -200,7 +219,8 @@ class GoogleSheetsSync:
         # 2. Si no hay credenciales de Google Sheets configuradas aún
         if not self.is_configured:
             logger.warning("Google Sheets no configurado: lead %s guardado en cola local.", lead_id)
-            self._enqueue(lead_id, lead_data, row)
+            if not self._enqueue(lead_id, lead_data, row):
+                return {"status": "NOT_PERSISTED_OFFLINE", "lead_id": lead_id, "row": row}
             return {"status": "QUEUED_OFFLINE", "lead_id": lead_id, "row": row}
 
         # 3. Intentos de sincronización directa con retroceso exponencial (no bloqueante)
@@ -219,7 +239,8 @@ class GoogleSheetsSync:
 
         # 4. Fallback a cola local si los 3 intentos fallaron
         logger.error("No se pudo escribir en Google Sheets tras 3 intentos. Encolando lead %s.", lead_id)
-        self._enqueue(lead_id, lead_data, row)
+        if not self._enqueue(lead_id, lead_data, row):
+            return {"status": "NOT_PERSISTED_ERROR", "lead_id": lead_id, "row": row}
         return {"status": "QUEUED_ERROR", "lead_id": lead_id, "row": row}
 
     def _get_access_token(self) -> Optional[str]:

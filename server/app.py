@@ -4,7 +4,9 @@ Responsabilidades:
   - Emisión de tokens JWT de LiveKit (WebRTC) para operadores autenticados y,
     opcionalmente, para la demo pública (sala única, TTL corto, rate-limit).
   - Healthcheck mínimo público y diagnóstico detallado autenticado.
-  - WebSocket Hub (/ws/monitor) para el panel en vivo (autenticación por mensaje).
+  - WebSocket Hub (/ws/monitor) para el panel en vivo (autenticación por mensaje) y,
+    para despliegues serverless (Vercel) sin conexiones persistentes, el mismo flujo de
+    eventos por polling autenticado en /api/events (ver docs/VERCEL.md).
   - Endpoints REST con PII (/api/calls, /api/leads, ...) SIEMPRE autenticados.
   - Webhook DocuSeal verificado con secreto compartido.
   - Logging estructurado en JSON sin PII y cabeceras de seguridad estrictas.
@@ -35,7 +37,7 @@ from fastapi.staticfiles import StaticFiles
 from livekit import api
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from agent.config import Config
+from agent.config import DATA_DIR, Config
 from agent.email_notify import EmailNotifier
 from agent.post_call import PostCallProcessor, mask_phone
 from agent.sheets_sync import GoogleSheetsSync
@@ -344,6 +346,13 @@ demo_token_limiter = SlidingWindowRateLimiter(max_requests=3, window_seconds=600
 
 
 def client_key(request: Request) -> str:
+    # En Vercel la conexión llega desde su proxy; Vercel SOBRESCRIBE X-Forwarded-For con
+    # la IP real del cliente (no es falsificable allí). Fuera de serverless la cabecera
+    # se ignora: cualquiera podría inventarla para saltarse el rate-limit.
+    if Config.SERVERLESS:
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
     return request.client.host if request.client else "unknown"
 
 
@@ -395,6 +404,40 @@ class MonitorConnectionManager:
 monitor_hub = MonitorConnectionManager()
 
 
+class EventLog:
+    """Buffer acotado de eventos con cursor, para el polling de /api/events.
+
+    En serverless no hay WebSocket persistente: el panel pide "eventos desde el cursor N".
+    El buffer vive en la memoria de ESTA instancia; `instance` cambia en cada arranque
+    en frío y el panel lo usa para saber que debe reiniciar el cursor.
+    """
+
+    def __init__(self, maxlen: int = 200) -> None:
+        self.instance = uuid.uuid4().hex[:12]
+        self._seq = 0
+        self._events: Deque[dict] = deque(maxlen=maxlen)
+
+    def append(self, event: dict) -> int:
+        self._seq += 1
+        self._events.append({"seq": self._seq, "event": event})
+        return self._seq
+
+    def since(self, cursor: int, limit: int = 100) -> List[dict]:
+        return [item for item in self._events if item["seq"] > cursor][:limit]
+
+    def clear(self) -> None:
+        self._events.clear()
+
+
+EVENT_LOG = EventLog()
+
+
+async def publish_event(event: dict) -> None:
+    """Registra el evento para polling y lo difunde a los WebSocket conectados."""
+    EVENT_LOG.append(event)
+    await monitor_hub.broadcast(event)
+
+
 # ==============================================================================
 # 4. ENDPOINTS DE LA API
 # ==============================================================================
@@ -423,6 +466,8 @@ async def get_status_details():
         "tts_fallback": Config.TTS_FALLBACK_PROVIDER,
         "n8n_configured": bool(Config.N8N_WEBHOOK_URL),
         "monitors_connected": len(monitor_hub.active_connections),
+        "serverless": Config.SERVERLESS,
+        "realtime_transport": "polling" if Config.SERVERLESS else "websocket",
     }
 
 
@@ -552,6 +597,28 @@ async def monitor_websocket_endpoint(websocket: WebSocket):
             pass
 
 
+@app.get("/api/events", tags=["Eventos de Voz"], dependencies=[require_auth])
+async def poll_events(
+    since: int = Query(default=0, ge=0),
+    instance: str = Query(default="", max_length=32, pattern=r"^[a-f0-9]*$"),
+):
+    """Alternativa por polling al WebSocket /ws/monitor (serverless, proxies sin WS).
+
+    Devuelve los eventos con `seq > since`. Si `instance` no coincide con la instancia
+    actual (arranque en frío o petición servida por otra instancia), el cursor del
+    cliente no es válido aquí: se devuelve el buffer completo con `reset=true`.
+    """
+    reset = bool(instance) and instance != EVENT_LOG.instance
+    items = EVENT_LOG.since(0 if reset else since)
+    return {
+        "instance": EVENT_LOG.instance,
+        "cursor": items[-1]["seq"] if items else (0 if reset else max(since, 0)),
+        "reset": reset,
+        "events": [item["event"] for item in items],
+        "transport": "polling",
+    }
+
+
 @app.post("/api/call-event", tags=["Eventos de Voz"], dependencies=[require_auth])
 async def receive_call_event(event: dict):
     """Recibe eventos del worker de voz (whitelist de claves + esquema estricto)."""
@@ -575,7 +642,7 @@ async def receive_call_event(event: dict):
         if validated_event.lead:
             LEADS_DATABASE.append(validated_event.lead)
 
-    await monitor_hub.broadcast(event_dict)
+    await publish_event(event_dict)
     return {"status": "broadcasted", "receivers": len(monitor_hub.active_connections)}
 
 
@@ -617,7 +684,7 @@ async def docuseal_webhook(request: Request, payload: dict):
             lead["docuseal_status"] = status_label
             lead["docuseal_updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    await monitor_hub.broadcast({
+    await publish_event({
         "type": "docuseal_update",
         "submission_id": submission_id,
         "status": status_label,
@@ -678,7 +745,7 @@ async def client_identify_endpoint(payload: ClientIdentifyModel, request: Reques
     )
 
     LEADS_DATABASE.append(lead_dict)
-    await monitor_hub.broadcast({
+    await publish_event({
         "type": "lead_created",
         "lead": lead_dict,
         "source": "client_portal_identification",
@@ -747,19 +814,24 @@ async def update_lead_stage(lead_id: str, payload: LeadStageModel):
     return {"status": "updated", "lead_id": lead_id, "stage": payload.stage}
 
 
-APPOINTMENT_REQUESTS_FILE = PROJECT_ROOT / "data" / "appointment_requests.jsonl"
+# En serverless el worker de voz escribe en SU disco, no en el de la función: este
+# listado solo verá solicitudes si ambos comparten DATA_DIR (despliegue no serverless).
+APPOINTMENT_REQUESTS_FILE = DATA_DIR / "appointment_requests.jsonl"
 
 
 @app.get("/api/appointments", tags=["Agenda"], dependencies=[require_auth])
 async def get_appointment_requests():
     """Solicitudes de cita registradas por el agente de voz (pendientes de confirmación)."""
     items: List[dict] = []
-    if APPOINTMENT_REQUESTS_FILE.exists():
-        for line in APPOINTMENT_REQUESTS_FILE.read_text(encoding="utf-8").splitlines()[-200:]:
-            try:
-                items.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
+    try:
+        lines = APPOINTMENT_REQUESTS_FILE.read_text(encoding="utf-8").splitlines()[-200:]
+    except OSError:
+        lines = []
+    for line in lines:
+        try:
+            items.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
     items.reverse()
     return {"appointments": items, "count": len(items), "source": "agent_requests"}
 
@@ -772,13 +844,11 @@ async def get_internal_system_status():
     # Supuesto: cada llamada atendida ahorra 15 min de trabajo manual a ~22 €/h (recepcionista LU).
     horas_ahorradas = round((total_calls * 15) / 60, 2)
 
-    queue_path = PROJECT_ROOT / "data" / "leads_queue.json"
     queue_count = 0
-    if queue_path.exists():
-        try:
-            queue_count = len(json.loads(queue_path.read_text(encoding="utf-8")))
-        except Exception:
-            pass
+    try:
+        queue_count = len(json.loads((DATA_DIR / "leads_queue.json").read_text(encoding="utf-8")))
+    except Exception:
+        pass
 
     return {
         "sistema": "La Centralita NOC Internal Metrics",
@@ -831,7 +901,7 @@ async def test_webhook():
         "status": "simulated",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    await monitor_hub.broadcast(event)
+    await publish_event(event)
     return {
         "message": "Pipeline de prueba ejecutado (simulado: sin escritura en Sheets ni email)",
         "simulated": True,
