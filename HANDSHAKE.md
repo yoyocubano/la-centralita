@@ -92,6 +92,14 @@ la llamada se transcribe en tiempo real → al colgar se extrae el lead
 - ✅ **Panel del Cliente (Monitor Web en Vivo) construido y publicado**: `https://yoyocubano.github.io/la-centralita/panel/`
   - Incluye: Módulo En Vivo con streaming de transcripción y waveform, Historial de llamadas con descarga de transcripciones, Bandeja de Leads interactiva con actualización de estados en LocalStorage, Agenda de citas en calendario mensual, y Monitor de Uptime y Salud del Pipeline.
   - Arquitectura de datos desacoplada (`CentralitaDataProvider`) lista para conectar a eventos LiveKit / WebSocket.
+- ⚡ **Optimización de Fluidez Conversacional (Preparación para venta 990 €)**:
+  - **Afinado de Silero VAD**: `min_silence_duration=0.45s` y `min_speech_duration=0.08s` para turn-taking ágil sin pausas vacías incómodas.
+  - **Generación Preemptiva & Barge-in**: `preemptive_generation=True` y `allow_interruptions=True` en `agent/agent.py` para cortes fluidos al interrumpir.
+  - **Guion Conversacional Natural**: Guion de Sofía renovado con marcadores de escucha activa ("¡Por supuesto!", "¡Qué maravilla!"), puntuación fonética y pautas de recepcionista de eventos de lujo en Luxemburgo (`agent/prompts.py`).
+  - **Motor Web de Voz Natural**: Simulador en `index.html` y `panel/app.js` con selección de voces neurales en español, cadencia humana, sincronización precisa por eventos `onend` (sin timers ciegos) e interacción por micrófono (`SpeechRecognition`).
+- ⚡ **Separación de Arquitectura Backend vs Monitor del Cliente**:
+  - **Backend (`server/app.py`)**: FastAPI con WebSocket Hub `/ws/monitor`, endpoints de llamadas y leads, token generator para LiveKit y despacho de webhooks a n8n.
+  - **Monitor del Cliente (`panel/`)**: Web para el cliente final con auto-conexión WebSocket al backend o fallback automático a simulación interactiva local con micrófono.
 - ⏳ A la espera de las credenciales (LiveKit Cloud, Deepgram, DeepSeek) para configurar `.env` y levantar el worker.
 
 ### 2026-10-01 — moise

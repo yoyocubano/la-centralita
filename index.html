@@ -521,6 +521,102 @@
       flex: 1;
     }
 
+    /* Interactive Voice & Text Controls */
+    .sim-interactive-controls {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .sim-input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .sim-text-input {
+      flex: 1;
+      background: #090a0f;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: var(--text-main);
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .sim-text-input:focus {
+      border-color: var(--gold);
+    }
+    .btn-sim-mic {
+      padding: 10px 14px;
+      background: rgba(212, 175, 55, 0.15);
+      border: 1px solid var(--border-gold);
+      border-radius: 8px;
+      color: var(--gold-light);
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-sim-mic:hover {
+      background: rgba(212, 175, 55, 0.25);
+    }
+    .btn-sim-mic.recording {
+      background: rgba(244, 63, 94, 0.25);
+      border-color: var(--red);
+      color: #fda4af;
+      animation: pulse-red 1.5s infinite;
+    }
+    .btn-sim-send {
+      padding: 10px 16px;
+      background: linear-gradient(135deg, var(--gold) 0%, #b8911e 100%);
+      color: #08090d;
+      font-weight: 700;
+      font-size: 0.88rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn-sim-send:hover {
+      opacity: 0.9;
+    }
+    .sim-quick-chips {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    .chips-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+    .quick-chip {
+      padding: 4px 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      border-radius: 999px;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .quick-chip:hover {
+      border-color: var(--border-gold);
+      color: var(--gold-light);
+      background: rgba(212, 175, 55, 0.08);
+    }
+
     /* LiveKit Real WebRTC Tab */
     .livekit-connect-box {
       display: flex;
@@ -998,7 +1094,30 @@
             <div class="dialogue-box" id="dialogueBox">
               <div class="dialogue-turn agent">
                 <div class="dialogue-author">Sofía (WELUX)</div>
-                <div>Haz clic en "Simular Llamada de Prueba" para reproducir la interacción conversacional completa con síntesis de voz.</div>
+                <div>¡Hola! Haz clic en "Simular Llamada de Prueba" o usa los botones de abajo para hablar por micrófono o escribirle a Sofía con voz natural y fluida.</div>
+              </div>
+            </div>
+
+            <!-- Interactive Live Voice & Speech Input Bar -->
+            <div class="sim-interactive-controls">
+              <div class="sim-input-row">
+                <button class="btn-sim-mic" id="btnSimMic" onclick="toggleSimMic()" title="Hablar con Sofía por micrófono">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" x2="12" y1="19" y2="22"/>
+                  </svg>
+                  <span id="simMicLabel">Hablar</span>
+                </button>
+                <input type="text" class="sim-text-input" id="simTextInput" placeholder="Habla por micrófono o escribe aquí a Sofía..." onkeydown="if(event.key==='Enter') sendSimUserMessage()">
+                <button class="btn-sim-send" onclick="sendSimUserMessage()">Enviar</button>
+              </div>
+              <div class="sim-quick-chips">
+                <span class="chips-label">Prueba Rápida:</span>
+                <button class="quick-chip" onclick="quickSendSim('Gala corporativa de fin de año en Kirchberg para 150 personas')">🥂 Gala Kirchberg</button>
+                <button class="quick-chip" onclick="quickSendSim('Boda de lujo en Château de Septfontaines con iluminación y DJ')">💍 Boda Septfontaines</button>
+                <button class="quick-chip" onclick="quickSendSim('Alquiler de equipos de sonido y altavoces para fiesta en Strassen')">🎂 Fiesta Strassen</button>
+                <button class="quick-chip" onclick="quickSendSim('¿Cuánto cobran por producción técnica completa para 100 personas?')">💶 Cotización</button>
               </div>
             </div>
           </div>
@@ -1433,41 +1552,105 @@ if __name__ == "__main__":
       });
     }
 
-    // Lógica del Simulador Interactivo
-    const SAMPLE_CONVERSATION = [
-      { role: "agent", text: "Hola, gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, la llamada será grabada para calidad. ¿En qué puedo ayudarte?" },
+    // =========================================================================
+    // Motor Conversacional y de Voz Natural de Sofía
+    // =========================================================================
+
+    const DEMO_CONVERSATION = [
+      { role: "agent", text: "¡Hola! Gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?" },
       { role: "user", text: "Hola Sofía, buenas tardes. Me llamo Julien Schmit y quisiera cotizar el sonido e iluminación para una fiesta privada el 24 de octubre." },
-      { role: "agent", text: "Hola Julien, un gusto saludarte. Por supuesto, contamos con equipos de sonido e iluminación ideales para fiestas privadas. ¿Aproximadamente cuántos invitados esperan?" },
+      { role: "agent", text: "¡Por supuesto Julien, un placer saludarte! Contamos con equipos de sonido profesional, iluminación dinámica y cabina DJ ideales para fiestas privadas. ¿Aproximadamente cuántos invitados esperan?" },
       { role: "user", text: "Seremos unas 80 personas, en un local en Strassen. Mi número de contacto es el +352 621 445 566." },
-      { role: "agent", text: "Perfecto Julien, anotado. Te prepararemos una propuesta a medida y el equipo de WELUX te llamará enseguida. ¡Que tengas un excelente día!" }
+      { role: "agent", text: "¡Excelente Julien, tomo nota de todo! Nuestro equipo técnico preparará una propuesta a medida hoy mismo y te llamará enseguida. ¡Que tengas un día estupendo!" }
     ];
 
     let simInterval = null;
     let simTimerVal = 0;
-    let turnIndex = 0;
+    let simTurnIndex = 0;
+    let isSofiaSpeaking = false;
+    let activeConversationHistory = [];
+    let extractedLeadData = {
+      nombre: null,
+      telefono: null,
+      motivo: "Consulta general",
+      fecha_interes: null,
+      detalles: "",
+      requiere_seguimiento: true
+    };
 
-    function speakBrowser(text) {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(text);
-        utter.lang = 'es-ES';
-        utter.rate = 1.05;
-        window.speechSynthesis.speak(utter);
+    function getBestSpanishVoice() {
+      if (!('speechSynthesis' in window)) return null;
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v => 
+        v.lang.startsWith("es") && (
+          v.name.includes("Google") || 
+          v.name.includes("Monica") || 
+          v.name.includes("Paulina") || 
+          v.name.includes("Helena") || 
+          v.name.includes("Natural") || 
+          v.name.includes("Jorge")
+        )
+      );
+      return preferred || voices.find(v => v.lang.startsWith("es")) || null;
+    }
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = () => getBestSpanishVoice();
+    }
+
+    function speakSofia(text, onEnd) {
+      if (!('speechSynthesis' in window)) {
+        if (onEnd) setTimeout(onEnd, 1400);
+        return;
       }
+
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'es-ES';
+      utter.rate = 1.05;   // Ritmo conversacional ágil y dinámico
+      utter.pitch = 1.02;  // Tono cálido, amigable y humano
+
+      const voice = getBestSpanishVoice();
+      if (voice) utter.voice = voice;
+
+      const avatarWrap = document.getElementById("simAvatarWrap");
+      const statusBadge = document.getElementById("simStatusBadge");
+
+      isSofiaSpeaking = true;
+      if (avatarWrap) avatarWrap.classList.add("calling");
+      if (statusBadge) {
+        statusBadge.textContent = "Sofía hablando...";
+        statusBadge.style.color = "var(--gold-light)";
+      }
+
+      utter.onend = () => {
+        isSofiaSpeaking = false;
+        if (statusBadge) {
+          statusBadge.textContent = "Sofía escuchando...";
+          statusBadge.style.color = "var(--emerald)";
+        }
+        if (onEnd) setTimeout(onEnd, 350); // Pausa de respiración natural
+      };
+
+      utter.onerror = () => {
+        isSofiaSpeaking = false;
+        if (onEnd) onEnd();
+      };
+
+      window.speechSynthesis.speak(utter);
     }
 
     function startSimulation() {
       document.getElementById("btnSimCall").style.display = "none";
       document.getElementById("btnSimHangup").style.display = "flex";
-      document.getElementById("simAvatarWrap").classList.add("calling");
-      document.getElementById("simStatusBadge").textContent = "Llamada en curso · Sofía hablando";
-      document.getElementById("simStatusBadge").style.color = "var(--emerald)";
       
       const dialogueBox = document.getElementById("dialogueBox");
       dialogueBox.innerHTML = "";
-      turnIndex = 0;
+      simTurnIndex = 0;
       simTimerVal = 0;
+      activeConversationHistory = [];
 
+      if (simInterval) clearInterval(simInterval);
       simInterval = setInterval(() => {
         simTimerVal++;
         const mins = String(Math.floor(simTimerVal / 60)).padStart(2, "0");
@@ -1475,33 +1658,36 @@ if __name__ == "__main__":
         document.getElementById("simTimer").textContent = `${mins}:${secs}`;
       }, 1000);
 
-      playNextTurn();
+      playNextGuidedTurn();
     }
 
-    function playNextTurn() {
-      if (turnIndex >= SAMPLE_CONVERSATION.length) {
+    function playNextGuidedTurn() {
+      if (simTurnIndex >= DEMO_CONVERSATION.length) {
         document.getElementById("simStatusBadge").textContent = "Conversación finalizada · Puedes colgar";
         return;
       }
 
-      const turn = SAMPLE_CONVERSATION[turnIndex];
-      const dialogueBox = document.getElementById("dialogueBox");
-
-      const div = document.createElement("div");
-      div.className = `dialogue-turn ${turn.role}`;
-      div.innerHTML = `<div class="dialogue-author">${turn.role === 'agent' ? 'Sofía (WELUX)' : 'Julien Schmit (Cliente)'}</div><div>${turn.text}</div>`;
-      dialogueBox.appendChild(div);
-      dialogueBox.scrollTop = dialogueBox.scrollHeight;
+      const turn = DEMO_CONVERSATION[simTurnIndex];
+      appendDialogueMessage(turn.role, turn.text);
+      simTurnIndex++;
 
       if (turn.role === 'agent') {
-        speakBrowser(turn.text);
+        speakSofia(turn.text, () => {
+          setTimeout(playNextGuidedTurn, 1000);
+        });
+      } else {
+        setTimeout(playNextGuidedTurn, 1400);
       }
+    }
 
-      turnIndex++;
-      const nextDelay = turn.role === 'agent' ? 3800 : 3400;
-      setTimeout(() => {
-        if (simInterval) playNextTurn();
-      }, nextDelay);
+    function appendDialogueMessage(role, text) {
+      const dialogueBox = document.getElementById("dialogueBox");
+      const div = document.createElement("div");
+      div.className = `dialogue-turn ${role === 'agent' ? 'agent' : 'user'}`;
+      div.innerHTML = `<div class="dialogue-author">${role === 'agent' ? 'Sofía (IA WELUX)' : 'Tú (Cliente)'}</div><div>${text}</div>`;
+      dialogueBox.appendChild(div);
+      dialogueBox.scrollTop = dialogueBox.scrollHeight;
+      activeConversationHistory.push(`${role === 'agent' ? 'Sofía' : 'Cliente'}: ${text}`);
     }
 
     function endSimulation() {
@@ -1523,13 +1709,13 @@ if __name__ == "__main__":
       const leadPayload = {
         "evento": "call_ended",
         "duracion_segundos": simTimerVal,
-        "transcript": SAMPLE_CONVERSATION.slice(0, turnIndex).map(t => `${t.role === 'agent' ? 'Sofía' : 'Cliente'}: ${t.text}`).join("\n"),
+        "transcript": activeConversationHistory.join("\n"),
         "lead": {
-          "nombre": "Julien Schmit",
-          "telefono": "+352 621 445 566",
-          "motivo": "Cotización de sonido e iluminación para fiesta privada",
-          "fecha_interes": "2026-10-24",
-          "detalles": "80 personas aprox. Local en Strassen, Luxemburgo.",
+          "nombre": extractedLeadData.nombre || "Julien Schmit",
+          "telefono": extractedLeadData.telefono || "+352 621 445 566",
+          "motivo": extractedLeadData.motivo || "Cotización de producción técnica para evento en Luxemburgo",
+          "fecha_interes": extractedLeadData.fecha_interes || "2026-10-24",
+          "detalles": extractedLeadData.detalles || "Salón en Luxemburgo. Requiere propuesta formal en 24h.",
           "requiere_seguimiento": true
         },
         "despacho_n8n": {
@@ -1541,6 +1727,130 @@ if __name__ == "__main__":
 
       document.getElementById("jsonLeadCode").textContent = JSON.stringify(leadPayload, null, 2);
       switchSimTab('lead');
+    }
+
+    // =========================================================================
+    // Reconocimiento de Voz por Micrófono e Interacción Libre
+    // =========================================================================
+
+    let simSpeechRecognizer = null;
+    let isSimMicListening = false;
+
+    function toggleSimMic() {
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRec) {
+        alert("Tu navegador no soporta reconocimiento de voz nativo. Escribe tu mensaje en el campo de texto.");
+        return;
+      }
+
+      if (isSimMicListening) {
+        stopSimMic();
+        return;
+      }
+
+      startSimMic();
+    }
+
+    function startSimMic() {
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      simSpeechRecognizer = new SpeechRec();
+      simSpeechRecognizer.lang = "es-ES";
+      simSpeechRecognizer.continuous = false;
+      simSpeechRecognizer.interimResults = false;
+
+      const btn = document.getElementById("btnSimMic");
+      const label = document.getElementById("simMicLabel");
+
+      simSpeechRecognizer.onstart = () => {
+        isSimMicListening = true;
+        if (btn) btn.classList.add("recording");
+        if (label) label.textContent = "Grabando...";
+        document.getElementById("simStatusBadge").textContent = "🎙️ Escuchando tu voz...";
+      };
+
+      simSpeechRecognizer.onresult = (e) => {
+        const text = e.results[0][0].transcript;
+        document.getElementById("simTextInput").value = text;
+        sendSimUserMessage();
+      };
+
+      simSpeechRecognizer.onerror = () => stopSimMic();
+      simSpeechRecognizer.onend = () => stopSimMic();
+
+      simSpeechRecognizer.start();
+    }
+
+    function stopSimMic() {
+      isSimMicListening = false;
+      const btn = document.getElementById("btnSimMic");
+      const label = document.getElementById("simMicLabel");
+      if (btn) btn.classList.remove("recording");
+      if (label) label.textContent = "Hablar";
+    }
+
+    function sendSimUserMessage() {
+      const input = document.getElementById("simTextInput");
+      const text = input.value.trim();
+      if (!text) return;
+
+      input.value = "";
+      stopSimMic();
+
+      // Asegurar que la llamada esté visualmente activa
+      document.getElementById("btnSimCall").style.display = "none";
+      document.getElementById("btnSimHangup").style.display = "flex";
+      if (!simInterval) {
+        simInterval = setInterval(() => {
+          simTimerVal++;
+          const mins = String(Math.floor(simTimerVal / 60)).padStart(2, "0");
+          const secs = String(simTimerVal % 60).padStart(2, "0");
+          document.getElementById("simTimer").textContent = `${mins}:${secs}`;
+        }, 1000);
+      }
+
+      appendDialogueMessage("user", text);
+      generateSofiaLiveAnswer(text);
+    }
+
+    function quickSendSim(phrase) {
+      document.getElementById("simTextInput").value = phrase;
+      sendSimUserMessage();
+    }
+
+    function generateSofiaLiveAnswer(userText) {
+      const lower = userText.toLowerCase();
+      let reply = "";
+
+      // Extracción al vuelo
+      const phoneMatch = userText.match(/(?:\+352|00352)?[0-9\s]{8,12}/);
+      if (phoneMatch) extractedLeadData.telefono = phoneMatch[0].trim();
+
+      const nameMatch = userText.match(/(?:me llamo|soy|mi nombre es)\s+([A-Za-zÀ-ÿ\s]+)/i);
+      if (nameMatch) extractedLeadData.nombre = nameMatch[1].trim();
+
+      if (lower.includes("gala") || lower.includes("empresa") || lower.includes("corporativ") || lower.includes("kirchberg")) {
+        reply = "¡Por supuesto! Para galas en Kirchberg contamos con sonido line-array de alta fidelidad, iluminación arquitectónica y microfonía para discursos. ¿Para qué fecha tienen previsto el evento?";
+        extractedLeadData.motivo = "Gala corporativa en Kirchberg";
+        extractedLeadData.detalles = "Sonido line-array e iluminación arquitectónica";
+      } else if (lower.includes("boda") || lower.includes("casamiento") || lower.includes("septfontaines")) {
+        reply = "¡Enhorabuena por la boda! En recintos como Septfontaines instalamos microfonía para la ceremonia, iluminación de hadas y cabina DJ profesional. ¿Ya tienen fecha reservada?";
+        extractedLeadData.motivo = "Boda de lujo en Septfontaines";
+        extractedLeadData.detalles = "Iluminación de hadas, sonido ceremonia y DJ";
+      } else if (lower.includes("cumpleaños") || lower.includes("fiesta") || lower.includes("strassen")) {
+        reply = "¡Qué buen plan de fiesta! Disponemos de packs completos con cabina DJ, altavoces activos y efectos de iluminación ideales para salones en Strassen. ¿Cuántas personas asistirán?";
+        extractedLeadData.motivo = "Fiesta privada de cumpleaños en Strassen";
+      } else if (lower.includes("precio") || lower.includes("tarifa") || lower.includes("cuanto") || lower.includes("cotiz")) {
+        reply = "Con mucho gusto te informo. Como cada evento tiene requerimientos técnicos únicos, preparamos un dossier con presupuesto cerrado en menos de 24 horas. ¿Me podrías indicar un teléfono de contacto?";
+        extractedLeadData.motivo = "Solicitud de tarifas y cotización";
+      } else {
+        reply = "¡Entendido perfectamente! Tomo nota de todos los detalles para que nuestro director de producción técnica te contacte hoy mismo con la propuesta. ¿Hay algún otro requerimiento?";
+        extractedLeadData.detalles += " " + userText;
+      }
+
+      setTimeout(() => {
+        appendDialogueMessage("agent", reply);
+        speakSofia(reply);
+      }, 400);
     }
 
     function switchSimTab(tab) {

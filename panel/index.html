@@ -185,6 +185,29 @@
               <!-- Dynamically populated with conversation turns -->
             </div>
 
+            <!-- Interactive Live Test & Voice Bar -->
+            <div class="interactive-test-bar">
+              <div class="test-bar-input-row">
+                <button class="btn-mic" id="btnLiveMic" onclick="toggleVoiceInputTest()" title="Hablar por micrófono con Sofía">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" x2="12" y1="19" y2="22"/>
+                  </svg>
+                  <span id="micBtnLabel">Hablar</span>
+                </button>
+                <input type="text" class="test-input" id="liveUserTextInput" placeholder="Habla por micrófono o escribe aquí (ej: cotizar sonido para 120 personas)..." onkeydown="if(event.key==='Enter') sendLiveUserText()">
+                <button class="btn-sm btn-gold" onclick="sendLiveUserText()">Enviar</button>
+              </div>
+              <div class="test-chips-row">
+                <span class="test-chips-label">Prueba Rápida:</span>
+                <button class="test-chip" onclick="quickSendChip('Gala corporativa de fin de año en Kirchberg para 150 personas')">🥂 Gala Kirchberg</button>
+                <button class="test-chip" onclick="quickSendChip('Boda de lujo en Château de Septfontaines con iluminación y DJ')">💍 Boda Septfontaines</button>
+                <button class="test-chip" onclick="quickSendChip('Alquiler de equipos de sonido y altavoces para fiesta en Strassen')">🎂 Fiesta Strassen</button>
+                <button class="test-chip" onclick="quickSendChip('¿Cuánto cuesta la producción técnica completa para 100 personas?')">💶 Cotización</button>
+              </div>
+            </div>
+
             <div class="stream-footer">
               <div class="typing-indicator" id="liveTypingIndicator">
                 <span class="dot"></span><span class="dot"></span><span class="dot"></span>
@@ -192,7 +215,7 @@
               </div>
               <div class="stream-actions">
                 <button class="btn-sm btn-outline" onclick="toggleAudioMute()">
-                  <span id="muteLabel">Silenciar Monitor</span>
+                  <span id="muteLabel">Silenciar Voz</span>
                 </button>
                 <button class="btn-sm btn-danger" onclick="hangupActiveCall()">
                   Colgar Llamada

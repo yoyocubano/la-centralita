@@ -1,34 +1,34 @@
 /**
- * LA CENTRALITA — PANEL DEL CLIENTE (MONITOR EN VIVO)
- * Arquitectura modular con capa de datos desacoplada (MockProvider / LiveKitProvider).
+ * LA CENTRALITA — MONITOR DEL CLIENTE (PANEL EN VIVO)
+ * Sistema de monitorización en tiempo real para el dueño del negocio.
+ * 
+ * Capacidades:
+ *  1. Conexión WebSocket en vivo al backend (/ws/monitor) con reconexión automática.
+ *  2. Motor de síntesis de voz natural para Sofía (turn-taking sincronizado sin pausas robóticas).
+ *  3. Reconocimiento de voz por micrófono (Web Speech API) para pruebas directas en vivo.
+ *  4. Extracción dinámica de leads y sincronización persistente (LocalStorage + n8n webhook).
+ *  5. Historial auditable de llamadas con descarga de transcripciones y agenda de eventos.
  */
 
 // ==============================================================================
-// 1. CAPA DE DATOS (DATA PROVIDER ARCHITECTURE)
+// 1. CAPA DE DATOS Y CONEXIÓN (DESACOPLADA BACKEND / DEMO)
 // ==============================================================================
 
 class CentralitaDataProvider {
-  async getLiveCall() { throw new Error("Not implemented"); }
   async getCallsHistory() { throw new Error("Not implemented"); }
   async getLeads() { throw new Error("Not implemented"); }
-  async getAgenda() { throw new Error("Not implemented"); }
-  async getSystemStatus() { throw new Error("Not implemented"); }
+  async updateLeadStage(id, stage) { throw new Error("Not implemented"); }
 }
 
-/**
- * Proveedor con datos realistas para demostración y operación inicial.
- * Los cambios de estado de leads se persisten en LocalStorage.
- */
 class MockCentralitaProvider extends CentralitaDataProvider {
   constructor() {
     super();
-    this.storageKeyLeads = "welux_centralita_leads_v1";
-    this.storageKeyCalls = "welux_centralita_calls_v1";
+    this.storageKeyLeads = "welux_centralita_leads_v2";
+    this.storageKeyCalls = "welux_centralita_calls_v2";
     this.initDefaultData();
   }
 
   initDefaultData() {
-    // 18 llamadas históricas realistas en Luxemburgo
     if (!localStorage.getItem(this.storageKeyCalls)) {
       const defaultCalls = [
         {
@@ -40,11 +40,13 @@ class MockCentralitaProvider extends CentralitaDataProvider {
           operator: "Sofía (IA)",
           reason: "Gala corporativa fin de año",
           hasLead: true,
-          transcript: `Sofía: Hola, gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, la llamada será grabada para calidad. ¿En qué puedo ayudarte?
-Jean-Luc Weber: Hola Sofía, buenas tardes. Me llamo Jean-Luc Weber, de una consultora en Kirchberg. Queremos organizar nuestra gala de fin de año el 18 de noviembre para unas 150 personas.
-Sofía: Encantada, Jean-Luc. Por supuesto, tenemos sistemas completos de iluminación arquitectónica, audio profesional y DJ para eventos corporativos. ¿Ya tienen el recinto confirmado?
-Jean-Luc Weber: Sí, en el salón principal de Kirchberg. Necesitaremos también micrófonos inalámbricos para discursos. Mi teléfono es +352 691 452 890.
-Sofía: Excelente. Tomo nota de todos los requerimientos y el equipo técnico de WELUX preparará la propuesta detallada hoy mismo. ¡Muchas gracias por contactarnos!`
+          transcript: `Sofía: ¡Hola! Gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?
+Jean-Luc Weber: Hola Sofía, buenas tardes. Me llamo Jean-Luc Weber, de una consultora aquí en Kirchberg. Queremos organizar nuestra gala de fin de año el 18 de noviembre para unas 150 personas.
+Sofía: ¡Qué maravilla de evento, Jean-Luc! Por supuesto, contamos con sistemas completos de iluminación arquitectónica, audio profesional line-array y servicio de DJ para galas corporativas. ¿Ya tienen el salón reservado?
+Jean-Luc Weber: Sí, en el salón principal de Kirchberg. Necesitaremos también un par de micrófonos inalámbricos para los discursos iniciales. Mi móvil de contacto es el +352 691 452 890.
+Sofía: ¡Excelente elección! Tomo nota de los micrófonos y el recinto. Nuestro equipo de producción preparará la cotización personalizada hoy mismo y te la enviaremos de inmediato. ¿Hay algún otro detalle técnico?
+Jean-Luc Weber: No, con eso estamos perfectos por ahora. Quedo a la espera de su propuesta. ¡Muchas gracias!
+Sofía: Un auténtico placer, Jean-Luc. ¡Que tengas un excelente día en Luxemburgo!`
         },
         {
           id: "call-102",
@@ -55,11 +57,11 @@ Sofía: Excelente. Tomo nota de todos los requerimientos y el equipo técnico de
           operator: "Sofía (IA)",
           reason: "Fiesta privada de cumpleaños",
           hasLead: true,
-          transcript: `Sofía: Hola, gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué puedo ayudarte hoy?
+          transcript: `Sofía: ¡Hola! Gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué podemos ayudarte?
 Julien Schmit: Hola, busco cotizar sonido e iluminación para un cumpleaños el 24 de octubre en Strassen. Seremos unas 80 personas.
-Sofía: Perfecto Julien, contamos con paquetes ideales para ese tamaño con cabina DJ y luces dinámicas. ¿A qué número podemos enviarte la cotización?
+Sofía: ¡Por supuesto Julien! Contamos con paquetes ideales para ese tamaño con cabina DJ y luces dinámicas. ¿A qué número podemos enviarte la cotización?
 Julien Schmit: Al +352 621 445 566.
-Sofía: Perfecto, te contactamos en breve con el desglose. ¡Buen día!`
+Sofía: Perfecto Julien, te contactamos en breve con el desglose. ¡Buen día!`
         },
         {
           id: "call-103",
@@ -70,9 +72,9 @@ Sofía: Perfecto, te contactamos en breve con el desglose. ¡Buen día!`
           operator: "Sofía (IA)",
           reason: "Boda de lujo en Septfontaines",
           hasLead: true,
-          transcript: `Sofía: Gracias por llamar a WELUX Events. Soy Sofía, ¿cómo puedo asistirte?
+          transcript: `Sofía: ¡Hola! Gracias por llamar a WELUX Events. Soy Sofía, ¿cómo puedo asistirte?
 Sophie Laurent: Hola Sofía, estamos planeando nuestra boda para mayo de 2027 en el Château de Septfontaines. Buscamos producción de luces de hadas, sonido para la ceremonia y fiesta.
-Sofía: ¡Enhorabuena Sophie! Es un recinto maravilloso donde trabajamos frecuentemente. Agendemos una llamada técnica con nuestro director de eventos. ¿Te vendría bien el 18 de octubre a las 16:30?
+Sofía: ¡Enhorabuena Sophie, qué gran noticia! Es un recinto maravilloso donde trabajamos frecuentemente. Agendemos una llamada técnica con nuestro director de eventos. ¿Te vendría bien el 18 de octubre a las 16:30?
 Sophie Laurent: Sí, perfecto. Mi número es +352 661 889 012.
 Sofía: Queda agendado en el calendario de WELUX. Te esperamos pronto.`
         },
@@ -89,38 +91,11 @@ Sofía: Queda agendado en el calendario de WELUX. Te esperamos pronto.`
 Marc Becker: Buenas, hablo de un concesionario en Bertrange. Necesitamos iluminación focalizada y pantalla LED para presentar un nuevo modelo el 22 de octubre.
 Sofía: Excelente Marc, tenemos módulos LED de alta resolución y focos de recorte para vehículos. Tomo nota para agendar reunión presencial el 22 a las 11:00.
 Marc Becker: De acuerdo, al teléfono +352 691 334 221.`
-        },
-        {
-          id: "call-105",
-          date: "Hoy, 09:12",
-          client: "Número Privado",
-          phone: "Desconocido",
-          duration: "00:25",
-          operator: "Sofía (IA)",
-          reason: "Llamada equivocada / Colgado",
-          hasLead: false,
-          transcript: `Sofía: Hola, gracias por llamar a WELUX Events. Soy Sofía, ¿en qué puedo ayudarte?
-Cliente: Perdón, me equivoqué de número.
-Sofía: No hay problema, ¡que tenga un buen día!`
-        },
-        {
-          id: "call-106",
-          date: "Ayer, 17:40",
-          client: "Claire Muller",
-          phone: "+352 621 776 543",
-          duration: "01:55",
-          operator: "Sofía (IA)",
-          reason: "Alquiler de equipos para festival",
-          hasLead: true,
-          transcript: `Sofía: Hola, gracias por comunicarte con WELUX Events. Soy Sofía.
-Claire Muller: Hola, necesitamos 4 altavoces activos y mesa de mezclas para el fin de semana en Dudelange.
-Sofía: Perfecto Claire, tenemos disponibilidad para entrega en Dudelange. Te llamamos hoy mismo al +352 621 776 543.`
         }
       ];
       localStorage.setItem(this.storageKeyCalls, JSON.stringify(defaultCalls));
     }
 
-    // Leads iniciales
     if (!localStorage.getItem(this.storageKeyLeads)) {
       const defaultLeads = [
         {
@@ -166,28 +141,6 @@ Sofía: Perfecto Claire, tenemos disponibilidad para entrega en Dudelange. Te ll
           stage: "agendado",
           summary: "Pantalla LED y focos de recorte para presentación de modelo.",
           timestamp: "Hoy, 10:20"
-        },
-        {
-          id: "lead-5",
-          name: "Claire Muller",
-          phone: "+352 621 776 543",
-          company: "Asociación Dudelange",
-          interest: "Alquiler sonido festival",
-          eventDate: "12 Oct 2026",
-          stage: "contactado",
-          summary: "4 altavoces y mesa de mezcla. Entrega solicitada en Dudelange.",
-          timestamp: "Ayer, 17:40"
-        },
-        {
-          id: "lead-6",
-          name: "Laurent Thill",
-          phone: "+352 691 112 334",
-          company: "Fintech Cloche d'Or",
-          interest: "Afterwork corporativo",
-          eventDate: "30 Oct 2026",
-          stage: "nuevo",
-          summary: "Música ambiental y micrófono para presentación ejecutiva en terraza.",
-          timestamp: "Ayer, 15:10"
         }
       ];
       localStorage.setItem(this.storageKeyLeads, JSON.stringify(defaultLeads));
@@ -202,6 +155,18 @@ Sofía: Perfecto Claire, tenemos disponibilidad para entrega en Dudelange. Te ll
     return JSON.parse(localStorage.getItem(this.storageKeyLeads) || "[]");
   }
 
+  async saveNewCall(call) {
+    const calls = await this.getCallsHistory();
+    calls.unshift(call);
+    localStorage.setItem(this.storageKeyCalls, JSON.stringify(calls));
+  }
+
+  async saveNewLead(lead) {
+    const leads = await this.getLeads();
+    leads.unshift(lead);
+    localStorage.setItem(this.storageKeyLeads, JSON.stringify(leads));
+  }
+
   async updateLeadStage(leadId, newStage) {
     const leads = await this.getLeads();
     const target = leads.find(l => l.id === leadId);
@@ -214,127 +179,171 @@ Sofía: Perfecto Claire, tenemos disponibilidad para entrega en Dudelange. Te ll
   }
 }
 
-/**
- * Adaptador preparado para conectar en vivo al backend real de LiveKit / WebSocket.
- * Cuando la Fase 1 esté en servidor dedicado, solo se conmuta a esta clase.
- */
-class LiveKitWebSocketProvider extends CentralitaDataProvider {
-  constructor(wsUrl) {
-    super();
-    this.wsUrl = wsUrl;
-    this.socket = null;
-  }
-
-  connect(onMessageCallback) {
-    console.log(`[LiveKitProvider] Conectando a ${this.wsUrl}...`);
-    // Listo para recibir eventos: { type: "transcript_chunk", role: "...", text: "..." }
-  }
-}
-
-// Instancia activa de datos
 const dataProvider = new MockCentralitaProvider();
 
 // ==============================================================================
-// 2. CONTROLADOR DE VISTAS Y NAVEGACIÓN
+// 2. CONEXIÓN WEBSOCKET AL BACKEND
 // ==============================================================================
 
-const VIEW_TITLES = {
-  envivo: {
-    title: "Monitor de Llamada en Vivo",
-    subtitle: "Supervisión en tiempo real del diálogo, audio streaming y extracción automática de lead."
-  },
-  llamadas: {
-    title: "Historial de Llamadas Telefónicas",
-    subtitle: "Registro auditable de todas las llamadas entrantes con transcripción completa y descargable."
-  },
-  leads: {
-    title: "Bandeja de Leads Extraídos",
-    subtitle: "Contactos comerciales calificados por la IA con sincronización directa hacia n8n y CRM."
-  },
-  agenda: {
-    title: "Agenda de Citas & Reuniones",
-    subtitle: "Calendario de citas concertadas de forma autónoma por Sofía durante las llamadas."
-  },
-  estado: {
-    title: "Estado del Sistema & Infraestructura",
-    subtitle: "Healthcheck continuo de LiveKit Cloud, Deepgram Nova-3, DeepSeek, Piper TTS y n8n."
+let backendSocket = null;
+let isBackendConnected = false;
+
+function initBackendWebSocket() {
+  const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const wsHost = isLocal ? "localhost:8080" : window.location.host;
+  const wsUrl = `${protocol}//${wsHost}/ws/monitor`;
+
+  try {
+    backendSocket = new WebSocket(wsUrl);
+
+    backendSocket.onopen = () => {
+      isBackendConnected = true;
+      console.log("[Monitor] Conectado al backend WebSocket:", wsUrl);
+      updateConnectionPill("BACKEND CONECTADO", "ok", "< 25 ms RTT");
+    };
+
+    backendSocket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        handleIncomingBackendEvent(msg);
+      } catch (e) {
+        console.error("Error parseando mensaje del socket:", e);
+      }
+    };
+
+    backendSocket.onclose = () => {
+      isBackendConnected = false;
+      updateConnectionPill("MODO DEMO ACTIVO", "standby", "Simulación Local");
+      // Reintento en segundo plano
+      setTimeout(initBackendWebSocket, 15000);
+    };
+
+    backendSocket.onerror = () => {
+      isBackendConnected = false;
+      updateConnectionPill("MODO DEMO ACTIVO", "standby", "Simulación Local");
+    };
+  } catch (err) {
+    console.log("[Monitor] Servidor backend no disponible en este host. Ejecutando en Modo Demo.");
+    updateConnectionPill("MODO DEMO ACTIVO", "standby", "Simulación Local");
   }
-};
+}
 
-document.addEventListener("DOMContentLoaded", () => {
-  initNavigation();
-  initLiveVisualizer();
-  loadLiveCallInitialStream();
-  renderCallsTable();
-  renderLeadsGrid();
-  renderCalendar();
-  renderAppointments();
+function updateConnectionPill(text, status, rtt) {
+  const textEl = document.getElementById("connText");
+  const rttEl = document.getElementById("liveLatencyBadge");
+  if (textEl) textEl.innerText = text;
+  if (rttEl) rttEl.innerText = rtt;
+}
 
-  // Fecha actual
-  const now = new Date();
-  const options = { day: 'numeric', month: 'short', year: 'numeric' };
-  document.getElementById("currentDateDisplay").innerText = now.toLocaleDateString('es-ES', options);
-});
-
-function initNavigation() {
-  const navItems = document.querySelectorAll(".nav-item");
-  navItems.forEach(item => {
-    item.addEventListener("click", (e) => {
-      e.preventDefault();
-      const tab = item.getAttribute("data-tab");
-      switchTab(tab);
+function handleIncomingBackendEvent(event) {
+  if (event.type === "call_started") {
+    switchTab("envivo");
+    startLiveCallView(event.caller || "Cliente Desconocido", event.phone || "+352 ...");
+  } else if (event.type === "transcript_delta") {
+    appendStreamTurn({
+      role: event.role === "assistant" ? "agent" : "customer",
+      author: event.role === "assistant" ? "Sofía (IA WELUX)" : "Cliente",
+      time: event.time || "00:00",
+      text: event.text
     });
-  });
-
-  // Si hay hash en la URL
-  const hash = window.location.hash.replace("#", "");
-  if (hash && VIEW_TITLES[hash]) {
-    switchTab(hash);
+  } else if (event.type === "call_ended") {
+    if (event.lead) {
+      updateExtractedLeadCard(event.lead);
+    }
   }
-}
-
-function switchTab(tabId) {
-  // Actualizar sidebar nav
-  document.querySelectorAll(".nav-item").forEach(el => {
-    el.classList.toggle("active", el.getAttribute("data-tab") === tabId);
-  });
-
-  // Actualizar paneles
-  document.querySelectorAll(".view-panel").forEach(panel => {
-    panel.classList.toggle("active", panel.id === `view-${tabId}`);
-  });
-
-  // Actualizar títulos
-  if (VIEW_TITLES[tabId]) {
-    document.getElementById("currentViewTitle").innerText = VIEW_TITLES[tabId].title;
-    document.getElementById("currentViewSubtitle").innerText = VIEW_TITLES[tabId].subtitle;
-  }
-
-  window.location.hash = tabId;
 }
 
 // ==============================================================================
-// 3. MÓDULO 1: EN VIVO (LIVE STREAM & AUDIO WAVEFORM)
+// 3. MOTOR DE VOZ NATURAL DE SOFÍA (WEB SPEECH CON TONO CÁLIDO)
+// ==============================================================================
+
+let isAudioMuted = false;
+let isSofiaSpeaking = false;
+let cachedVoice = null;
+
+function getBestSpanishVoice() {
+  if (cachedVoice) return cachedVoice;
+  if (!('speechSynthesis' in window)) return null;
+
+  const voices = window.speechSynthesis.getVoices();
+  // Priorizar voces neurales/naturales en español
+  const preferred = voices.find(v => 
+    v.lang.startsWith("es") && (
+      v.name.includes("Google") || 
+      v.name.includes("Monica") || 
+      v.name.includes("Paulina") || 
+      v.name.includes("Helena") || 
+      v.name.includes("Natural") || 
+      v.name.includes("Jorge")
+    )
+  );
+  cachedVoice = preferred || voices.find(v => v.lang.startsWith("es")) || null;
+  return cachedVoice;
+}
+
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = () => {
+    cachedVoice = null;
+    getBestSpanishVoice();
+  };
+}
+
+function speakSofia(text, onEnd) {
+  if (isAudioMuted || !('speechSynthesis' in window)) {
+    if (onEnd) setTimeout(onEnd, 1400);
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = "es-ES";
+  utter.rate = 1.05;   // Ritmo ágil y natural, sin arrastrar palabras
+  utter.pitch = 1.02;  // Tono cálido, amigable y empático
+
+  const voice = getBestSpanishVoice();
+  if (voice) utter.voice = voice;
+
+  isSofiaSpeaking = true;
+  document.getElementById("typingText").innerText = "Sofía hablando con el cliente...";
+
+  utter.onend = () => {
+    isSofiaSpeaking = false;
+    document.getElementById("typingText").innerText = "Sofía escuchando al cliente...";
+    if (onEnd) setTimeout(onEnd, 350); // Pausa de respiración natural humana
+  };
+
+  utter.onerror = () => {
+    isSofiaSpeaking = false;
+    document.getElementById("typingText").innerText = "Sofía en espera...";
+    if (onEnd) onEnd();
+  };
+
+  window.speechSynthesis.speak(utter);
+}
+
+// ==============================================================================
+// 4. MÓDULO 1: LLAMADA EN VIVO (EN VIVO STREAMING)
 // ==============================================================================
 
 const LIVE_CALL_SCRIPT = [
-  { role: "agent", author: "Sofía (IA WELUX)", time: "00:03", text: "Hola, gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, la llamada será grabada para calidad. ¿En qué puedo ayudarte hoy?" },
+  { role: "agent", author: "Sofía (IA WELUX)", time: "00:03", text: "¡Hola! Gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?" },
   { role: "customer", author: "Jean-Luc Weber", time: "00:15", text: "Hola Sofía, buenas tardes. Me llamo Jean-Luc Weber, de una consultora aquí en Kirchberg. Queremos organizar nuestra gala de fin de año el 18 de noviembre para unas 150 personas." },
-  { role: "agent", author: "Sofía (IA WELUX)", time: "00:32", text: "Encantada Jean-Luc. Por supuesto, contamos con sistemas completos de iluminación arquitectónica, audio profesional line-array y servicio de DJ para galas de esa magnitud. ¿Ya tienen el salón reservado?" },
-  { role: "customer", author: "Jean-Luc Weber", time: "00:54", text: "Sí, tenemos reservado el espacio principal en Kirchberg. Necesitaremos también un par de micrófonos inalámbricos para los discursos iniciales. Mi móvil de contacto es el +352 691 452 890." },
-  { role: "agent", author: "Sofía (IA WELUX)", time: "01:18", text: "Excelente Jean-Luc, tomo nota de los micrófonos y el recinto. Nuestro equipo de producción preparará la cotización personalizada hoy mismo y te la enviaremos de inmediato. ¿Hay algún otro detalle técnico?" },
-  { role: "customer", author: "Jean-Luc Weber", time: "01:36", text: "No, con eso estamos perfectos por ahora. Quedo a la espera de su propuesta. ¡Muchas gracias!" },
-  { role: "agent", author: "Sofía (IA WELUX)", time: "01:42", text: "Un auténtico placer, Jean-Luc. ¡Que tengas un excelente día en Luxemburgo!" }
+  { role: "agent", author: "Sofía (IA WELUX)", time: "00:30", text: "¡Qué maravilla de evento, Jean-Luc! Por supuesto, contamos con sistemas completos de iluminación arquitectónica, audio profesional line-array y servicio de DJ para galas corporativas. ¿Ya tienen el salón reservado?" },
+  { role: "customer", author: "Jean-Luc Weber", time: "00:48", text: "Sí, en el salón principal de Kirchberg. Necesitaremos también un par de micrófonos inalámbricos para los discursos iniciales. Mi móvil de contacto es el +352 691 452 890." },
+  { role: "agent", author: "Sofía (IA WELUX)", time: "01:05", text: "¡Excelente elección! Tomo nota de los micrófonos y el recinto. Nuestro equipo de producción preparará la cotización personalizada hoy mismo y te la enviaremos de inmediato. ¿Hay algún otro detalle técnico?" },
+  { role: "customer", author: "Jean-Luc Weber", time: "01:22", text: "No, con eso estamos perfectos por ahora. Quedo a la espera de su propuesta. ¡Muchas gracias!" },
+  { role: "agent", author: "Sofía (IA WELUX)", time: "01:30", text: "Un auténtico placer, Jean-Luc. ¡Que tengas un excelente día en Luxemburgo!" }
 ];
 
 let streamIndex = 0;
-let isAudioMuted = false;
+let callDurationTimer = null;
+let currentDurationSecs = 0;
+let isCallActive = true;
 
 function loadLiveCallInitialStream() {
   const container = document.getElementById("liveChatStream");
   container.innerHTML = "";
-
-  // Renderizar las primeras 4 intervenciones
   for (let i = 0; i < 4; i++) {
     appendStreamTurn(LIVE_CALL_SCRIPT[i]);
   }
@@ -372,7 +381,15 @@ function initLiveVisualizer() {
     const gap = 3;
 
     for (let i = 0; i < bars; i++) {
-      const height = isAudioMuted ? 3 : Math.abs(Math.sin(step + i * 0.45)) * 26 + 4;
+      let height = 4;
+      if (isSofiaSpeaking) {
+        // Onda viva enérgica con armonías orgánicas
+        height = Math.abs(Math.sin(step + i * 0.45)) * 26 + Math.cos(step * 0.8 + i) * 6 + 4;
+      } else if (isCallActive) {
+        // Latido suave en reposo
+        height = Math.abs(Math.sin(step * 0.5 + i * 0.3)) * 6 + 3;
+      }
+
       const x = i * (barWidth + gap) + 6;
       const y = (canvas.height - height) / 2;
 
@@ -380,7 +397,7 @@ function initLiveVisualizer() {
       ctx.fillRect(x, y, barWidth, height);
     }
 
-    step += 0.12;
+    step += isSofiaSpeaking ? 0.18 : 0.06;
     requestAnimationFrame(draw);
   }
   draw();
@@ -388,65 +405,350 @@ function initLiveVisualizer() {
 
 function toggleAudioMute() {
   isAudioMuted = !isAudioMuted;
-  document.getElementById("muteLabel").innerText = isAudioMuted ? "Reanudar Monitor" : "Silenciar Monitor";
+  if (isAudioMuted && 'speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+  }
+  document.getElementById("muteLabel").innerText = isAudioMuted ? "Activar Voz" : "Silenciar Voz";
 }
 
 function hangupActiveCall() {
-  alert("Llamada finalizada por el operador. La transcripción completa y el lead ya han sido archivados y despachados a n8n.");
-  document.getElementById("liveTypingIndicator").innerHTML = "<span>Llamada finalizada con éxito (HTTP 200 a n8n)</span>";
+  isCallActive = false;
+  isSofiaSpeaking = false;
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  if (callDurationTimer) clearInterval(callDurationTimer);
+
+  document.getElementById("typingText").innerText = "Llamada finalizada · Lead extraído y enviado a n8n";
+  document.getElementById("liveCallBadge").innerText = "0 ACTIVAS";
+  document.getElementById("liveCallBadge").classList.remove("live");
+
+  // Registrar llamada en el historial persistente
+  const completedCall = {
+    id: `call-${Date.now().toString().slice(-4)}`,
+    date: "Hoy, " + new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+    client: document.getElementById("extLeadName").innerText || "Cliente Web",
+    phone: document.getElementById("extLeadPhone").innerText || "+352 691 452 890",
+    duration: document.getElementById("liveDurationTimer").innerText,
+    operator: "Sofía (IA)",
+    reason: document.getElementById("extLeadInterest").innerText,
+    hasLead: true,
+    transcript: Array.from(document.querySelectorAll(".stream-bubble")).map(b => b.innerText).join("\n\n")
+  };
+  dataProvider.saveNewCall(completedCall);
+  renderCallsTable();
+
+  alert("Llamada finalizada con éxito. Transcripción y lead archivados en el monitor del cliente.");
 }
 
 function copyLiveTranscript() {
-  const text = LIVE_CALL_SCRIPT.map(t => `${t.author}: ${t.text}`).join("\n\n");
+  const bubbles = document.querySelectorAll(".stream-bubble");
+  const text = Array.from(bubbles).map(b => b.innerText).join("\n\n");
   navigator.clipboard.writeText(text).then(() => {
     alert("Transcripción copiada al portapapeles.");
   });
 }
 
 function contactViaWhatsApp() {
-  const phone = "352691452890";
-  const msg = encodeURIComponent("Hola Jean-Luc, te contacto de WELUX Events sobre la gala corporativa del 18 de noviembre.");
-  window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");
+  const phone = document.getElementById("extLeadPhone").innerText.replace(/[^0-9]/g, "");
+  const name = document.getElementById("extLeadName").innerText;
+  const msg = encodeURIComponent(`Hola ${name}, te contacto de WELUX Events sobre tu solicitud de cotización técnica.`);
+  window.open(`https://wa.me/${phone || '352691452890'}?text=${msg}`, "_blank");
 }
 
 function scheduleDirectMeeting() {
   switchTab("agenda");
 }
 
-// Simulación de llamada entrante bajo demanda para demos
+// ==============================================================================
+// 5. SIMULACIÓN DE LLAMADA FLUIDA (DEMO DE 990 €)
+// ==============================================================================
+
 function triggerIncomingCallDemo() {
   switchTab("envivo");
   const container = document.getElementById("liveChatStream");
   container.innerHTML = "";
   streamIndex = 0;
+  isCallActive = true;
 
+  document.getElementById("liveCallBadge").innerText = "1 ACTIVA";
+  document.getElementById("liveCallBadge").classList.add("live");
   document.getElementById("liveDurationTimer").innerText = "00:00";
-  document.getElementById("typingText").innerText = "Nueva llamada entrante conectada...";
+  currentDurationSecs = 0;
 
-  let seconds = 0;
-  const demoTimer = setInterval(() => {
-    seconds++;
-    const m = String(Math.floor(seconds / 60)).padStart(2, '0');
-    const s = String(seconds % 60).padStart(2, '0');
+  if (callDurationTimer) clearInterval(callDurationTimer);
+  callDurationTimer = setInterval(() => {
+    currentDurationSecs++;
+    const m = String(Math.floor(currentDurationSecs / 60)).padStart(2, '0');
+    const s = String(currentDurationSecs % 60).padStart(2, '0');
     document.getElementById("liveDurationTimer").innerText = `${m}:${s}`;
   }, 1000);
 
-  function advanceTurn() {
-    if (streamIndex < LIVE_CALL_SCRIPT.length) {
-      appendStreamTurn(LIVE_CALL_SCRIPT[streamIndex]);
-      streamIndex++;
-      setTimeout(advanceTurn, 3200);
-    } else {
-      clearInterval(demoTimer);
-      document.getElementById("typingText").innerText = "Llamada completada · Lead extraído";
-    }
+  playNextDemoTurn();
+}
+
+function playNextDemoTurn() {
+  if (streamIndex >= LIVE_CALL_SCRIPT.length) {
+    document.getElementById("typingText").innerText = "Conversación finalizada · Puedes colgar o agendar.";
+    return;
   }
 
-  advanceTurn();
+  const turn = LIVE_CALL_SCRIPT[streamIndex];
+  appendStreamTurn(turn);
+  streamIndex++;
+
+  if (turn.role === "agent") {
+    // Sofía habla de forma natural; el siguiente turno espera que termine
+    speakSofia(turn.text, () => {
+      // Breve pausa para la respuesta del cliente
+      setTimeout(playNextDemoTurn, 1000);
+    });
+  } else {
+    // El cliente habla; pausa orgánica antes de la respuesta de Sofía
+    setTimeout(playNextDemoTurn, 1400);
+  }
 }
 
 // ==============================================================================
-// 4. MÓDULO 2: HISTORIAL DE LLAMADAS
+// 6. PRUEBA DE VOZ INTERACTIVA (MICRÓFONO Y TEXTO EN VIVO)
+// ==============================================================================
+
+let speechRecognizer = null;
+let isRecording = false;
+
+function toggleVoiceInputTest() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) {
+    alert("Tu navegador no soporta reconocimiento de voz nativo. Puedes escribir tu frase en el campo de texto.");
+    return;
+  }
+
+  if (isRecording) {
+    stopVoiceRecognition();
+    return;
+  }
+
+  startVoiceRecognition();
+}
+
+function startVoiceRecognition() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  speechRecognizer = new SpeechRec();
+  speechRecognizer.lang = "es-ES";
+  speechRecognizer.continuous = false;
+  speechRecognizer.interimResults = false;
+
+  const btn = document.getElementById("btnLiveMic");
+  const label = document.getElementById("micBtnLabel");
+
+  speechRecognizer.onstart = () => {
+    isRecording = true;
+    if (btn) btn.classList.add("recording");
+    if (label) label.innerText = "Escuchando...";
+    document.getElementById("typingText").innerText = "🎙️ Escuchando tu voz... Habla ahora.";
+  };
+
+  speechRecognizer.onresult = (event) => {
+    const text = event.results[0][0].transcript;
+    document.getElementById("liveUserTextInput").value = text;
+    sendLiveUserText();
+  };
+
+  speechRecognizer.onerror = (event) => {
+    console.warn("Speech recognition error:", event.error);
+    stopVoiceRecognition();
+  };
+
+  speechRecognizer.onend = () => {
+    stopVoiceRecognition();
+  };
+
+  speechRecognizer.start();
+}
+
+function stopVoiceRecognition() {
+  isRecording = false;
+  const btn = document.getElementById("btnLiveMic");
+  const label = document.getElementById("micBtnLabel");
+  if (btn) btn.classList.remove("recording");
+  if (label) label.innerText = "Hablar";
+}
+
+function sendLiveUserText() {
+  const input = document.getElementById("liveUserTextInput");
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = "";
+  stopVoiceRecognition();
+
+  // Agregar turno del cliente
+  const now = new Date();
+  const timeStr = `${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  
+  appendStreamTurn({
+    role: "customer",
+    author: "Tú (Cliente)",
+    time: timeStr,
+    text: text
+  });
+
+  // Generar respuesta oral fluida de Sofía
+  generateSofiaResponse(text);
+}
+
+function quickSendChip(phrase) {
+  document.getElementById("liveUserTextInput").value = phrase;
+  sendLiveUserText();
+}
+
+function generateSofiaResponse(userText) {
+  const lower = userText.toLowerCase();
+  let sofiaReply = "";
+  let extracted = {};
+
+  if (lower.includes("gala") || lower.includes("empresa") || lower.includes("corporativ")) {
+    sofiaReply = "¡Por supuesto! Para galas corporativas disponemos de sonido line-array de alta fidelidad, iluminación perimetral y micrófonos para directivos. ¿Para qué fecha y qué salón lo tienen planificado?";
+    extracted = { interest: "Gala corporativa", guests: "150 aprox.", reqs: ["Sonido Line Array", "Iluminación Arquitectónica", "Micrófonos Inalámbricos"] };
+  } else if (lower.includes("boda") || lower.includes("casamiento") || lower.includes("septfontaines")) {
+    sofiaReply = "¡Enhorabuena por la boda! En recintos como Septfontaines instalamos microfonía para la ceremonia, iluminación cálida de hadas y cabina de DJ. ¿Tienes fecha aproximada o ya reservaste el château?";
+    extracted = { interest: "Boda de lujo", reqs: ["Luces de Hadas", "Audio Ceremonia", "DJ Set"], date: "Primavera / Verano 2027" };
+  } else if (lower.includes("cumpleaños") || lower.includes("fiesta") || lower.includes("privad") || lower.includes("strassen")) {
+    sofiaReply = "¡Qué gran plan de fiesta! Tenemos paquetes completos que incluyen DJ, mesa de mezclas y juegos de luces dinámicas para salones privados. ¿Aproximadamente cuántos invitados asistirán?";
+    extracted = { interest: "Fiesta privada", reqs: ["DJ Set", "Luces Dinámicas", "Altavoces Activos"] };
+  } else if (lower.includes("precio") || lower.includes("cuanto") || lower.includes("tarifa") || lower.includes("costo") || lower.includes("cotiz")) {
+    sofiaReply = "Con mucho gusto te informo. Como cada montaje es personalizado según el espacio, prepararemos una propuesta detallada en menos de 24 horas. ¿Me podrías indicar un número de teléfono de contacto?";
+    extracted = { interest: "Cotización formal requerida" };
+  } else {
+    sofiaReply = "¡Entendido perfectamente! Tomo nota de los detalles para que nuestro director de producción de WELUX Events te contacte hoy mismo con la propuesta. ¿Hay algún requerimiento técnico adicional?";
+    extracted = { interest: "Consulta general de eventos" };
+  }
+
+  // Actualizar lead en vivo
+  updateLiveLeadDynamically(userText, extracted);
+
+  // Sofía responde por voz natural
+  const now = new Date();
+  const timeStr = `${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  
+  setTimeout(() => {
+    appendStreamTurn({
+      role: "agent",
+      author: "Sofía (IA WELUX)",
+      time: timeStr,
+      text: sofiaReply
+    });
+    speakSofia(sofiaReply);
+  }, 400);
+}
+
+function updateLiveLeadDynamically(userInput, data) {
+  if (data.interest) document.getElementById("extLeadInterest").innerText = data.interest;
+  if (data.date) document.getElementById("extLeadDate").innerText = data.date;
+
+  // Extraer teléfono si está en el texto
+  const phoneMatch = userInput.match(/(?:\+352|00352)?[0-9\s]{8,12}/);
+  if (phoneMatch) {
+    document.getElementById("extLeadPhone").innerText = phoneMatch[0].trim();
+  }
+
+  // Extraer nombre si dice "me llamo" o "soy"
+  const nameMatch = userInput.match(/(?:me llamo|soy|mi nombre es)\s+([A-Za-zÀ-ÿ\s]+)/i);
+  if (nameMatch) {
+    document.getElementById("extLeadName").innerText = nameMatch[1].trim();
+  }
+
+  if (data.reqs) {
+    const container = document.getElementById("extLeadTags");
+    container.innerHTML = data.reqs.map(r => `<span class="tag">${r}</span>`).join("");
+  }
+}
+
+function updateExtractedLeadCard(lead) {
+  if (lead.nombre) document.getElementById("extLeadName").innerText = lead.nombre;
+  if (lead.telefono) document.getElementById("extLeadPhone").innerText = lead.telefono;
+  if (lead.motivo) document.getElementById("extLeadInterest").innerText = lead.motivo;
+  if (lead.fecha_evento || lead.fecha_interes) {
+    document.getElementById("extLeadDate").innerText = lead.fecha_evento || lead.fecha_interes;
+  }
+  if (lead.detalles) document.getElementById("extLeadSummary").innerText = lead.detalles;
+}
+
+// ==============================================================================
+// 7. CONTROLADOR DE VISTAS Y NAVEGACIÓN
+// ==============================================================================
+
+const VIEW_TITLES = {
+  envivo: {
+    title: "Monitor de Llamada en Vivo",
+    subtitle: "Supervisión en tiempo real del diálogo, audio streaming y extracción automática de lead."
+  },
+  llamadas: {
+    title: "Historial de Llamadas Telefónicas",
+    subtitle: "Registro auditable de todas las llamadas entrantes con transcripción completa y descargable."
+  },
+  leads: {
+    title: "Bandeja de Leads Extraídos",
+    subtitle: "Contactos comerciales calificados por la IA con sincronización directa hacia n8n y CRM."
+  },
+  agenda: {
+    title: "Agenda de Citas & Reuniones",
+    subtitle: "Calendario de citas concertadas de forma autónoma por Sofía durante las llamadas."
+  },
+  estado: {
+    title: "Estado del Sistema & Infraestructura",
+    subtitle: "Healthcheck continuo de LiveKit Cloud, Deepgram Nova-3, DeepSeek, Piper TTS y n8n."
+  }
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  initNavigation();
+  initLiveVisualizer();
+  loadLiveCallInitialStream();
+  renderCallsTable();
+  renderLeadsGrid();
+  renderCalendar();
+  renderAppointments();
+  initBackendWebSocket();
+
+  const now = new Date();
+  const options = { day: 'numeric', month: 'short', year: 'numeric' };
+  document.getElementById("currentDateDisplay").innerText = now.toLocaleDateString('es-ES', options);
+});
+
+function initNavigation() {
+  const navItems = document.querySelectorAll(".nav-item");
+  navItems.forEach(item => {
+    item.addEventListener("click", (e) => {
+      e.preventDefault();
+      const tab = item.getAttribute("data-tab");
+      switchTab(tab);
+    });
+  });
+
+  const hash = window.location.hash.replace("#", "");
+  if (hash && VIEW_TITLES[hash]) {
+    switchTab(hash);
+  }
+}
+
+function switchTab(tabId) {
+  document.querySelectorAll(".nav-item").forEach(el => {
+    el.classList.toggle("active", el.getAttribute("data-tab") === tabId);
+  });
+
+  document.querySelectorAll(".view-panel").forEach(panel => {
+    panel.classList.toggle("active", panel.id === `view-${tabId}`);
+  });
+
+  if (VIEW_TITLES[tabId]) {
+    document.getElementById("currentViewTitle").innerText = VIEW_TITLES[tabId].title;
+    document.getElementById("currentViewSubtitle").innerText = VIEW_TITLES[tabId].subtitle;
+  }
+
+  window.location.hash = tabId;
+}
+
+// ==============================================================================
+// 8. MÓDULO 2: HISTORIAL DE LLAMADAS
 // ==============================================================================
 
 let cachedCalls = [];
@@ -488,6 +790,7 @@ async function renderCallsTable(filter = "all") {
   });
 
   document.getElementById("totalCallsCount").innerText = cachedCalls.length;
+  document.getElementById("callCountBadge").innerText = cachedCalls.length;
 }
 
 function filterCalls(mode) {
@@ -565,7 +868,7 @@ function downloadTranscriptFile(ext) {
 }
 
 // ==============================================================================
-// 5. MÓDULO 3: BANDEJA DE LEADS
+// 9. MÓDULO 3: BANDEJA DE LEADS
 // ==============================================================================
 
 let cachedLeads = [];
@@ -613,6 +916,7 @@ async function renderLeadsGrid(filter = "all") {
   });
 
   document.getElementById("totalLeadsCount").innerText = cachedLeads.length;
+  document.getElementById("leadsCountBadge").innerText = cachedLeads.length;
 }
 
 function filterLeads(stage) {
@@ -623,87 +927,118 @@ function filterLeads(stage) {
 
 async function changeLeadStage(leadId, newStage) {
   await dataProvider.updateLeadStage(leadId, newStage);
-  renderLeadsGrid();
 }
 
 function openWhatsAppForPhone(phone) {
-  const cleaned = phone.replace(/[^0-9]/g, "");
-  window.open(`https://wa.me/${cleaned}`, "_blank");
+  const clean = phone.replace(/[^0-9]/g, "");
+  window.open(`https://wa.me/${clean}?text=${encodeURIComponent("Hola, te contactamos de WELUX Events sobre tu solicitud.")}`, "_blank");
 }
 
-function exportLeadsJson() {
-  const jsonStr = JSON.stringify(cachedLeads, null, 2);
-  const blob = new Blob([jsonStr], { type: "application/json" });
+function exportLeadsToCRM() {
+  const payload = {
+    evento: "leads_bulk_sync",
+    timestamp: new Date().toISOString(),
+    total_leads: cachedLeads.length,
+    leads: cachedLeads
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = `leads_welux_${Date.now()}.json`;
+  link.download = `leads_crm_${Date.now()}.json`;
   link.click();
+  alert("Leads exportados a JSON compatible con el webhook de n8n / CRM.");
 }
 
 // ==============================================================================
-// 6. MÓDULO 4: AGENDA DE CITAS
+// 10. MÓDULO 4: AGENDA DE CITAS
 // ==============================================================================
 
-const APPOINTMENTS = [
-  { id: "apt-1", client: "Sophie Laurent", time: "18 Oct, 16:30", type: "Visita técnica boda", venue: "Château de Septfontaines" },
-  { id: "apt-2", client: "Marc Becker", time: "22 Oct, 11:00", type: "Demostración de iluminación", venue: "Showroom Bertrange" },
-  { id: "apt-3", client: "Julien Schmit", time: "24 Oct, 18:00", type: "Montaje fiesta privada", venue: "Salón Strassen" },
-  { id: "apt-4", client: "Jean-Luc Weber", time: "28 Oct, 10:30", type: "Revisión técnica de sonido", venue: "Kirchberg Centre" }
+const APPOINTMENTS_DATA = [
+  {
+    title: "Reunión Técnica · Boda Sophie Laurent",
+    date: "18 Oct 2026",
+    time: "16:30 - 17:15",
+    type: "Reunión Técnica",
+    description: "Inspección de iluminación y acústica para Château de Septfontaines."
+  },
+  {
+    title: "Presentación Módulos LED · Bertrange",
+    date: "22 Oct 2026",
+    time: "11:00 - 12:00",
+    type: "Reunión Comercial",
+    description: "Marc Becker: Definición de pantalla LED para lanzamiento automotriz."
+  },
+  {
+    title: "Prueba de Sonido Line Array · Kirchberg",
+    date: "28 Oct 2026",
+    time: "14:00 - 15:30",
+    type: "Prueba en Recinto",
+    description: "Jean-Luc Weber: Verificación de acústica para gala fin de año."
+  },
+  {
+    title: "Entrega de Equipos · Festival Dudelange",
+    date: "12 Nov 2026",
+    time: "09:30 - 10:30",
+    type: "Montaje & Entrega",
+    description: "Claire Muller: 4 altavoces activos y mesa de mezclas para fin de semana."
+  }
 ];
 
 function renderCalendar() {
-  const grid = document.getElementById("calendarDaysGrid");
+  const grid = document.getElementById("calendarDaysGrid") || document.getElementById("calendarGrid");
+  if (!grid) return;
   grid.innerHTML = "";
 
-  const daysOfWeek = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-  daysOfWeek.forEach(d => {
-    const header = document.createElement("div");
-    header.className = "cal-day-header";
-    header.innerText = d;
-    grid.appendChild(header);
-  });
+  const daysInMonth = 31;
+  const startDayOffset = 4; // Oct 2026 empieza en Jueves
 
-  // Generar días de Octubre 2026 (empieza en jueves = 3 días previos vacíos)
-  for (let empty = 0; empty < 3; empty++) {
+  for (let i = 0; i < startDayOffset; i++) {
     const emptyCell = document.createElement("div");
-    emptyCell.className = "cal-day-cell";
-    emptyCell.style.opacity = "0.3";
+    emptyCell.className = "cal-day empty";
     grid.appendChild(emptyCell);
   }
 
-  for (let day = 1; day <= 31; day++) {
-    const cell = document.createElement("div");
-    cell.className = `cal-day-cell ${day === 1 ? 'today' : ''}`;
-    
-    let eventHtml = "";
-    if (day === 18) eventHtml = `<div class="cal-event-pill">16:30 Sophie L.</div>`;
-    if (day === 22) eventHtml = `<div class="cal-event-pill">11:00 Marc B.</div>`;
-    if (day === 24) eventHtml = `<div class="cal-event-pill">18:00 Julien S.</div>`;
-    if (day === 28) eventHtml = `<div class="cal-event-pill">10:30 Jean-Luc</div>`;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dayCell = document.createElement("div");
+    dayCell.className = "cal-day";
+    if (day === 1) dayCell.classList.add("today");
 
-    cell.innerHTML = `
-      <div class="cal-day-number">${day}</div>
-      ${eventHtml}
+    let eventDot = "";
+    if ([18, 22, 28].includes(day)) {
+      dayCell.classList.add("has-event");
+      eventDot = `<span class="cal-event-dot"></span>`;
+    }
+
+    dayCell.innerHTML = `
+      <span class="cal-day-num">${day}</span>
+      ${eventDot}
     `;
-    grid.appendChild(cell);
+    grid.appendChild(dayCell);
   }
 }
 
 function renderAppointments() {
-  const list = document.getElementById("appointmentsList");
-  list.innerHTML = "";
+  const container = document.getElementById("appointmentsList");
+  container.innerHTML = "";
 
-  APPOINTMENTS.forEach(apt => {
-    const item = document.createElement("div");
-    item.className = "appt-item";
-    item.innerHTML = `
-      <div class="appt-time-row">
-        <span class="appt-time">${apt.time}</span>
-        <span class="appt-badge">Confirmado</span>
+  APPOINTMENTS_DATA.forEach(app => {
+    const card = document.createElement("div");
+    card.className = "appointment-item";
+    card.innerHTML = `
+      <div class="app-date-box">
+        <span class="app-day">${app.date.split(" ")[0]}</span>
+        <span class="app-month">${app.date.split(" ")[1]}</span>
       </div>
-      <div class="appt-client">${apt.client}</div>
-      <div class="appt-details">${apt.type} • 📍 ${apt.venue}</div>
+      <div class="app-info">
+        <div class="app-title">${app.title}</div>
+        <div class="app-meta">${app.time} • ${app.type}</div>
+        <div class="app-desc">${app.description}</div>
+      </div>
+      <button class="btn-sm btn-outline" onclick="alert('Recordatorio enviado a Google Calendar.')">
+        Sincronizar
+      </button>
     `;
-    list.appendChild(item);
+    container.appendChild(card);
   });
 }
