@@ -5,29 +5,108 @@ Responsabilidades:
   - Healthcheck y diagnóstico de credenciales del pipeline.
   - WebSocket Hub (/ws/monitor) para retransmisión en tiempo real al Monitor del Cliente.
   - Endpoints REST (/api/calls, /api/leads) para historial persistente y sincronización.
-  - Despacho y verificación de webhooks hacia n8n.
+  - Despacho y verificación de webhooks hacia n8n y DocuSeal.
+  - Logging estructurado en JSON para observabilidad y auditoría.
+  - Headers de seguridad HTTP estrictos y esquemas de validación Pydantic v2.
 """
 
 import json
 import logging
+import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, List
+from typing import Any, Dict, List, Optional, Set, Union
 
-from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from livekit import api
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent.config import Config
 from agent.post_call import PostCallProcessor
 
-logger = logging.getLogger("la-centralita.server")
-logging.basicConfig(level=logging.INFO)
+# ==============================================================================
+# 1. LOGGING ESTRUCTURADO EN JSON (OBSERVABILIDAD AUDITABLE)
+# ==============================================================================
 
-app = FastAPI(title="La Centralita - Backend & Event Hub (WELUX)")
+class StructuredJsonFormatter(logging.Formatter):
+    """Formateador de logs estructurados en JSON estándar para auditorías y CloudWatch/Loki."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry: Dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if hasattr(record, "extra_data") and isinstance(record.extra_data, dict):
+            log_entry.update(record.extra_data)
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_entry, ensure_ascii=False)
+
+
+logger = logging.getLogger("la-centralita.server")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(StructuredJsonFormatter())
+    logger.addHandler(handler)
+    logger.propagate = False
+
+
+# ==============================================================================
+# 2. ESQUEMAS DE VALIDACIÓN PYDANTIC V2
+# ==============================================================================
+
+class CallEventModel(BaseModel):
+    """Esquema estricto para eventos de llamadas (Pydantic v2)."""
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = Field(..., min_length=1, max_length=64, description="Tipo de evento (ej. call_started, call_ended, transcript)")
+    call_id: Optional[str] = Field(default=None, max_length=128, description="Identificador único de la llamada")
+    timestamp: Optional[str] = Field(default=None, max_length=64, description="Timestamp ISO del evento")
+    status: Optional[str] = Field(default=None, max_length=64, description="Estado de la llamada (active, ended, etc.)")
+    room: Optional[str] = Field(default=None, max_length=128, description="Sala LiveKit WebRTC")
+    duration: Optional[str] = Field(default=None, max_length=32, description="Duración en formato MM:SS o segundos")
+    transcript: Optional[Any] = Field(default=None, description="Transcripción de la llamada o fragmento")
+    lead: Optional[Dict[str, Any]] = Field(default=None, description="Objeto de lead extraído")
+    agent: Optional[str] = Field(default=None, max_length=64, description="Nombre o identificador del agente")
+
+
+class DocuSealWebhookModel(BaseModel):
+    """Esquema flexible pero tipado para eventos webhook de DocuSeal."""
+    model_config = ConfigDict(extra="allow")
+
+    event_type: Optional[str] = Field(default=None, max_length=64, description="Nombre del evento DocuSeal")
+    type: Optional[str] = Field(default=None, max_length=64, description="Alias para event_type")
+    data: Optional[Dict[str, Any]] = Field(default=None, description="Cuerpo del documento o sumisión")
+    submission: Optional[Dict[str, Any]] = Field(default=None, description="Datos de sumisión")
+    submission_id: Optional[Union[str, int]] = Field(default=None, description="ID de la sumisión")
+    id: Optional[Union[str, int]] = Field(default=None, description="ID del documento")
+
+
+# ==============================================================================
+# 3. APLICACIÓN FASTAPI Y SEGURIDAD HTTP
+# ==============================================================================
+
+app = FastAPI(
+    title="La Centralita - Backend & Event Hub (WELUX)",
+    description=(
+        "Backend de producción y orquestador en tiempo real para La Centralita. "
+        "Soporta emisión de tokens LiveKit WebRTC, streaming WebSocket a monitores NOC, "
+        "gestión persistente de llamadas/leads, webhooks de firma digital eIDAS con DocuSeal "
+        "y sincronización bidireccional con n8n y Twenty CRM."
+    ),
+    version="1.2.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+)
 
 # CORS middleware restringido (H-001)
 app.add_middleware(
@@ -49,11 +128,78 @@ PANEL_DIR = PROJECT_ROOT / "panel"
 WEB_DIR = PROJECT_ROOT / "web"
 
 # Constantes de seguridad y autenticación (H-002, H-003, H-004)
-ALLOWED_ROOMS = {"centralita-test", "centralita-demo"}
-ALLOWED_EVENT_KEYS = {"type", "call_id", "timestamp", "status", "room", "duration", "transcript", "lead", "agent"}
+ALLOWED_ROOMS: Set[str] = {"centralita-test", "centralita-demo"}
+ALLOWED_EVENT_KEYS: Set[str] = {
+    "type", "call_id", "timestamp", "status", "room", "duration", "transcript", "lead", "agent"
+}
 
 
-def get_authorized_tokens() -> set[str]:
+# Middleware global de seguridad HTTP y logging de latencia
+@app.middleware("http")
+async def security_and_profiling_middleware(request: Request, call_next):
+    request_id = str(uuid.uuid4())
+    start_time = time.perf_counter()
+
+    response = await call_next(request)
+
+    process_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+    # Inyección de cabeceras de endurecimiento HTTP
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Request-ID"] = request_id
+
+    # Log estructurado
+    client_ip = request.client.host if request.client else "unknown"
+    extra_info = {
+        "request_id": request_id,
+        "method": request.method,
+        "path": request.url.path,
+        "status_code": response.status_code,
+        "latency_ms": process_time_ms,
+        "client_ip": client_ip,
+    }
+    logger.info(
+        f"{request.method} {request.url.path} -> {response.status_code} ({process_time_ms}ms)",
+        extra={"extra_data": extra_info},
+    )
+
+    return response
+
+
+# Handlers estándar para errores HTTP estructurados
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": True,
+            "status_code": exc.status_code,
+            "detail": exc.detail,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "path": request.url.path,
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": True,
+            "status_code": 422,
+            "detail": "Error de validación en el payload recibido",
+            "errors": exc.errors(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "path": request.url.path,
+        },
+    )
+
+
+def get_authorized_tokens() -> Set[str]:
     """Conjunto de tokens válidos para autenticación interna."""
     tokens = {
         Config.AUTH_TOKEN,
@@ -78,6 +224,7 @@ def verify_auth_header(authorization: str | None = Header(None)) -> bool:
         raise HTTPException(status_code=403, detail="Token no autorizado")
     return True
 
+
 # Almacenamiento en memoria para llamadas y leads de la sesión activa
 CALLS_DATABASE: List[dict] = []
 LEADS_DATABASE: List[dict] = []
@@ -92,7 +239,10 @@ class MonitorConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info(f"Monitor conectado al backend (Total: {len(self.active_connections)})")
+        logger.info(
+            f"Monitor conectado al backend (Total: {len(self.active_connections)})",
+            extra={"extra_data": {"action": "ws_connect", "monitors": len(self.active_connections)}},
+        )
         # Enviar estado inicial
         await websocket.send_json({
             "type": "connection_established",
@@ -104,7 +254,10 @@ class MonitorConnectionManager:
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-            logger.info(f"Monitor desconectado (Restantes: {len(self.active_connections)})")
+            logger.info(
+                f"Monitor desconectado (Restantes: {len(self.active_connections)})",
+                extra={"extra_data": {"action": "ws_disconnect", "monitors": len(self.active_connections)}},
+            )
 
     async def broadcast(self, message: dict):
         """Difunde un evento en streaming a todos los monitores web conectados."""
@@ -119,7 +272,11 @@ class MonitorConnectionManager:
 monitor_hub = MonitorConnectionManager()
 
 
-@app.get("/api/status")
+# ==============================================================================
+# 4. ENDPOINTS DE LA API
+# ==============================================================================
+
+@app.get("/api/status", tags=["Salud & Diagnóstico"])
 async def get_status():
     """Devuelve el estado de las credenciales y servicios del sistema."""
     checks = Config.validate()
@@ -132,11 +289,11 @@ async def get_status():
     }
 
 
-@app.get("/api/token")
+@app.get("/api/token", tags=["WebRTC LiveKit"])
 async def get_token(
-    room: str = Query(default="centralita-test"),
-    identity: str = Query(default=""),
-    name: str = Query(default="Cliente Web"),
+    room: str = Query(default="centralita-test", description="Nombre de la sala LiveKit"),
+    identity: str = Query(default="", description="ID único del participante"),
+    name: str = Query(default="Cliente Web", description="Nombre legible del participante"),
     authorization: str | None = Header(None),
 ):
     """Genera un token JWT de LiveKit para que el navegador se una a la sala (H-002 protegido)."""
@@ -190,7 +347,10 @@ async def monitor_websocket_endpoint(
     """Canal bidireccional WebSocket para el Monitor del Cliente con validación de token (H-004)."""
     valid_tokens = get_authorized_tokens()
     if not token or token not in valid_tokens:
-        logger.warning(f"Rechazo de conexión WebSocket no autorizada (H-004)")
+        logger.warning(
+            "Rechazo de conexión WebSocket no autorizada (H-004)",
+            extra={"extra_data": {"security_event": "ws_unauthorized_attempt"}},
+        )
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
@@ -215,7 +375,7 @@ async def monitor_websocket_endpoint(
         monitor_hub.disconnect(websocket)
 
 
-@app.post("/api/call-event")
+@app.post("/api/call-event", tags=["Eventos de Voz"])
 async def receive_call_event(
     event: dict,
     authorization: str | None = Header(None),
@@ -226,7 +386,10 @@ async def receive_call_event(
 
     # 2. Validar estructura del evento con whitelist de claves
     if not isinstance(event, dict) or "type" not in event:
-        raise HTTPException(status_code=400, detail="Estructura de evento inválida. El campo 'type' es requerido.")
+        raise HTTPException(
+            status_code=400,
+            detail="Estructura de evento inválida. El campo 'type' es requerido.",
+        )
 
     extra_keys = set(event.keys()) - ALLOWED_EVENT_KEYS
     if extra_keys:
@@ -235,52 +398,67 @@ async def receive_call_event(
             detail=f"Payload contiene claves no permitidas: {', '.join(sorted(extra_keys))}",
         )
 
-    event_type = event["type"]
-    event["server_timestamp"] = datetime.now(timezone.utc).isoformat()
+    # Validar modelo con Pydantic v2
+    try:
+        validated_event = CallEventModel.model_validate(event)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Validación de campos fallida: {e}")
+
+    event_type = validated_event.type
+    event_dict = validated_event.model_dump(exclude_none=True)
+    event_dict["server_timestamp"] = datetime.now(timezone.utc).isoformat()
 
     if event_type == "call_ended":
-        CALLS_DATABASE.append(event)
-        if event.get("lead") and isinstance(event.get("lead"), dict):
-            LEADS_DATABASE.append(event["lead"])
+        CALLS_DATABASE.append(event_dict)
+        if validated_event.lead and isinstance(validated_event.lead, dict):
+            LEADS_DATABASE.append(validated_event.lead)
 
     # Difundir en vivo a todos los monitores web del cliente
-    await monitor_hub.broadcast(event)
+    await monitor_hub.broadcast(event_dict)
     return {"status": "broadcasted", "receivers": len(monitor_hub.active_connections)}
 
 
-@app.post("/api/docuseal/webhook")
+@app.post("/api/docuseal/webhook", tags=["DocuSeal & Firmas"])
 async def docuseal_webhook(payload: dict):
     """Webhook para recibir eventos de contratos DocuSeal (firma completada, enviado, visto)."""
+    try:
+        DocuSealWebhookModel.model_validate(payload)
+    except Exception as err:
+        logger.warning(f"DocuSeal payload con estructura no estándar: {err}")
+
     event_type = payload.get("event_type") or payload.get("type", "submission.updated")
     submission = payload.get("data") or payload.get("submission") or payload
-    submission_id = submission.get("id") or submission.get("submission_id")
-    status = "FIRMADO" if event_type in ("submission.completed", "completed") else "ENVIADO"
+    submission_id = submission.get("id") or submission.get("submission_id") if isinstance(submission, dict) else None
+    status_label = "FIRMADO" if event_type in ("submission.completed", "completed") else "ENVIADO"
 
-    logger.info(f"DocuSeal webhook recibido: evento={event_type}, id={submission_id}, status={status}")
+    logger.info(
+        f"DocuSeal webhook recibido: evento={event_type}, id={submission_id}, status={status_label}",
+        extra={"extra_data": {"event": event_type, "submission_id": submission_id, "status": status_label}},
+    )
 
     # Actualizar estado en memoria
     for lead in LEADS_DATABASE:
         if lead.get("docuseal_id") == submission_id or lead.get("id") == submission_id:
-            lead["docuseal_status"] = status
+            lead["docuseal_status"] = status_label
             lead["docuseal_signed_at"] = datetime.now(timezone.utc).isoformat()
 
     # Notificar a los paneles conectados vía WebSocket
     await monitor_hub.broadcast({
         "type": "docuseal_update",
         "submission_id": submission_id,
-        "status": status,
+        "status": status_label,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
-    return {"status": "ok", "event": event_type, "docuseal_status": status}
+    return {"status": "ok", "event": event_type, "docuseal_status": status_label}
 
 
-@app.get("/api/calls")
+@app.get("/api/calls", tags=["Persistencia"])
 async def get_calls():
     """Devuelve el historial de llamadas registradas."""
     return {"calls": CALLS_DATABASE, "count": len(CALLS_DATABASE)}
 
 
-@app.get("/api/leads")
+@app.get("/api/leads", tags=["Persistencia"])
 async def get_leads():
     """Devuelve la bandeja de leads extraídos con sincronización desde persistencia."""
     leads = list(LEADS_DATABASE)
@@ -324,7 +502,7 @@ async def get_leads():
     return {"leads": leads, "count": len(leads)}
 
 
-@app.get("/api/system/internal")
+@app.get("/api/system/internal", tags=["Métricas Internas & ROI"])
 async def get_internal_system_status():
     """Panel de control interno: ahorro en tiempo, ahorro financiero y métricas de infraestructura."""
     # Métricas de ahorro calculadas contra salario recepcionista Luxemburgo (~3.200 €/mes = ~22 €/hora)
@@ -363,7 +541,7 @@ async def get_internal_system_status():
     }
 
 
-@app.post("/api/test-webhook")
+@app.post("/api/test-webhook", tags=["Diagnóstico & Webhook"])
 async def test_webhook():
     """Envía un lead de prueba simulado directamente a n8n para verificar el flujo."""
     processor = PostCallProcessor()

@@ -874,6 +874,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderCalendar();
   renderAppointments();
   initBackendWebSocket();
+  initParticlesBackground();
 
   const now = new Date();
   const options = { day: 'numeric', month: 'short', year: 'numeric' };
@@ -914,6 +915,99 @@ function switchTab(tabId) {
 }
 
 // ==============================================================================
+// 7.B. HUD OVERLAYS & TSPARTICLES (CYBERPUNK HUD + PARTICLES)
+// ==============================================================================
+
+let hudActive = false;
+
+function toggleHudFx() {
+  hudActive = !hudActive;
+  document.body.classList.toggle("hud-mode-active", hudActive);
+  const btn = document.getElementById("btnToggleHud");
+  if (btn) {
+    btn.innerText = hudActive ? "HUD FX: ACTIVO" : "HUD FX: OFF";
+    btn.classList.toggle("btn-primary", hudActive);
+    btn.classList.toggle("btn-secondary", !hudActive);
+  }
+}
+
+function initParticlesBackground() {
+  if (typeof tsParticles === "undefined") {
+    console.info("tsParticles not loaded, skipping particle initialization.");
+    return;
+  }
+  try {
+    tsParticles.load("tsparticles", {
+      fullScreen: { enable: false, zIndex: 0 },
+      fpsLimit: 60,
+      particles: {
+        number: {
+          value: 35,
+          density: { enable: true, area: 800 }
+        },
+        color: {
+          value: ["#8b5cf6", "#d4af37", "#a78bfa"]
+        },
+        shape: { type: "circle" },
+        opacity: {
+          value: { min: 0.15, max: 0.5 },
+          animation: {
+            enable: true,
+            speed: 0.8,
+            minimumValue: 0.1,
+            sync: false
+          }
+        },
+        size: {
+          value: { min: 1, max: 2.5 }
+        },
+        move: {
+          enable: true,
+          speed: 0.6,
+          direction: "none",
+          random: true,
+          straight: false,
+          outModes: { default: "out" }
+        }
+      },
+      interactivity: {
+        events: {
+          onHover: { enable: true, mode: "bubble" }
+        },
+        modes: {
+          bubble: { distance: 100, size: 3.5, duration: 2, opacity: 0.7 }
+        }
+      },
+      detectRetina: true
+    });
+  } catch (err) {
+    console.warn("tsParticles init notice:", err);
+  }
+}
+
+function createEmptyStateElement(icon, title, desc) {
+  const container = document.createElement("div");
+  container.className = "panel-empty-state";
+  
+  const iconDiv = document.createElement("div");
+  iconDiv.className = "empty-icon";
+  iconDiv.textContent = icon;
+  
+  const titleDiv = document.createElement("div");
+  titleDiv.className = "empty-title";
+  titleDiv.textContent = title;
+  
+  const descDiv = document.createElement("div");
+  descDiv.className = "empty-desc";
+  descDiv.textContent = desc;
+  
+  container.appendChild(iconDiv);
+  container.appendChild(titleDiv);
+  container.appendChild(descDiv);
+  return container;
+}
+
+// ==============================================================================
 // 8. MÓDULO 2: HISTORIAL DE LLAMADAS
 // ==============================================================================
 
@@ -929,6 +1023,19 @@ async function renderCallsTable(filter = "all") {
     if (filter === "leads") return c.hasLead;
     return true;
   });
+
+  if (filtered.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 7;
+    td.className = "text-center";
+    td.appendChild(createEmptyStateElement("📡", "Sin registro de llamadas", "No se encontraron llamadas que coincidan con el filtro seleccionado."));
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    document.getElementById("totalCallsCount").innerText = "0";
+    document.getElementById("callCountBadge").innerText = "0";
+    return;
+  }
 
   filtered.forEach(call => {
     const tr = document.createElement("tr");
@@ -1090,6 +1197,13 @@ async function renderLeadsGrid(filter = "all") {
     if (filter === "all") return true;
     return l.stage === filter;
   });
+
+  if (filtered.length === 0) {
+    const emptyState = createEmptyStateElement("💼", "No hay prospectos en esta etapa", "Todos los leads han avanzado o no hay registros para el filtro seleccionado.");
+    emptyState.style.gridColumn = "1 / -1";
+    container.appendChild(emptyState);
+    return;
+  }
 
   const amountsMap = {
     "lead-1": "4.800 €",
@@ -1426,6 +1540,11 @@ function renderCalendar() {
 function renderAppointments() {
   const container = document.getElementById("appointmentsList");
   container.innerHTML = "";
+
+  if (APPOINTMENTS_DATA.length === 0) {
+    container.appendChild(createEmptyStateElement("📅", "Agenda despejada", "No hay citas programadas para el período actual."));
+    return;
+  }
 
   APPOINTMENTS_DATA.forEach(app => {
     const card = document.createElement("div");
