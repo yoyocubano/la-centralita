@@ -8,11 +8,24 @@
 > 1. No crear otro documento de coordinación: todo vive en este archivo.
 > 2. Cada agente actualiza su sección y el tablero; no borrar el trabajo de otros.
 > 3. Las claves reales NUNCA se escriben aquí (solo qué falta / qué ya existe).
-> 4. Claves, códigos y datos sensibles viajan SOLO por el canal interno
->    (chat "la centralita"), directo al `.env` local de quien los necesite.
->    Nunca en el repo, nunca en memoria, nunca en logs, nunca expuestos.
+> 4. Ver la REGLA DE SEGURIDAD sobre secretos más abajo: aplica a TODOS
+>    los agentes sin excepciones.
 > 4. Cuando algo queda resuelto, márcalo `✅ RESUELTO (fecha)` con evidencia
 >    (commit, URL, medición).
+
+## 🔒 REGLA DE SEGURIDAD — SECRETOS (para TODOS, sin excepciones)
+
+Claves API, tokens, códigos de verificación, contraseñas y cualquier dato
+sensible:
+
+- Viajan ÚNICAMENTE por el canal interno (el chat "la centralita").
+- Van directo al `.env` local (gitignored) de quien los necesite. Nada más.
+- PROHIBIDO escribirlos en el repo, en este HANDSHAKE, en commits, en issues,
+  en notas/memoria, en logs o exponerlos en cualquier otra superficie.
+- Si un secreto aparece donde no debe: se rota inmediatamente y se avisa en
+  el chat interno.
+
+No hay excepciones a esta regla para ningún agente.
 
 ## 1. Qué es
 
