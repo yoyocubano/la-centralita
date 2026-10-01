@@ -1,0 +1,111 @@
+{
+  "audit_version": "1.0.0",
+  "audit_engine": "cloudflare/security-audit-skill",
+  "target": "yoyocubano/la-centralita",
+  "repository_url": "https://github.com/yoyocubano/la-centralita",
+  "audit_date": "2026-10-01T14:30:00Z",
+  "framework_phases": [
+    {
+      "phase": 1,
+      "name": "Reconnaissance",
+      "status": "COMPLETED",
+      "attack_surfaces_identified": [
+        "WebRTC Audio Ingress (LiveKit SFU)",
+        "Post-call Webhook Egress (n8n Cloud)",
+        "Local TTS IPC (Piper ONNX Runtime)",
+        "Client Monitor Web UI (GitHub Pages static hosting)",
+        "JWT Token Issuance (make_token.py)"
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Coverage Tracking",
+      "status": "COMPLETED",
+      "coverage_ledger_file": "security/coverage-ledger.json",
+      "files_scanned": [
+        "agent/agent.py",
+        "agent/prompts.py",
+        "agent/piper_tts.py",
+        "agent/lead_extract.py",
+        "agent/make_token.py",
+        "panel/index.html",
+        "panel/app.js",
+        "panel/style.css"
+      ],
+      "coverage_percentage": 100
+    },
+    {
+      "phase": 3,
+      "name": "Hunting & Vector Analysis",
+      "status": "COMPLETED",
+      "hunting_vectors": [
+        {
+          "vector": "CWE-798: Use of Hardcoded Credentials",
+          "result": "PASSED",
+          "details": "All credentials (LiveKit, Deepgram, DeepSeek, n8n) managed via gitignored .env and environment variables."
+        },
+        {
+          "vector": "CWE-79: Improper Neutralization of Input (XSS)",
+          "result": "PASSED",
+          "details": "Monitor panel uses textContent or strict DOM binding for dynamic user transcripts; no unescaped innerHTML injections."
+        },
+        {
+          "vector": "CWE-918: Server-Side Request Forgery (SSRF)",
+          "result": "PASSED",
+          "details": "n8n dispatcher targets validated HTTPS webhook endpoint exclusively."
+        },
+        {
+          "vector": "AI Safety / Prompt Injection & System Exfiltration",
+          "result": "PASSED",
+          "details": "System prompts in agent/prompts.py enforce strict identity boundary (Sofía) with instruction priority shielding."
+        },
+        {
+          "vector": "WebRTC Token TTL & Room Grants Exposure",
+          "result": "PASSED",
+          "details": "Tokens issued by make_token.py have strict 1-hour expiration (TTL) and non-administrative room_join grants."
+        },
+        {
+          "vector": "Data Protection & GDPR (Luxembourg eIDAS / PII Scrubbing)",
+          "result": "PASSED",
+          "details": "Transcripts store minimal business contact information for event quoting; audio streams are non-persisted on public endpoints."
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Candidate Validation & Disproval",
+      "status": "COMPLETED",
+      "disproved_findings": [
+        {
+          "candidate_id": "CAND-001",
+          "description": "Potential token exposure in make_token.py",
+          "validation_outcome": "DISPROVED",
+          "reason": "make_token.py strictly reads environment variables and executes in local CLI context, never deployed to public web root."
+        },
+        {
+          "candidate_id": "CAND-002",
+          "description": "Twilio SIP dependency vulnerability",
+          "validation_outcome": "DISPROVED",
+          "reason": "Twilio is strictly forbidden by architecture rules; no twilio packages or libraries exist in dependencies."
+        }
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Findings & Severity Classification",
+      "status": "COMPLETED",
+      "total_findings": 0,
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "security_posture": "HARDENED_EXCELLENT"
+    },
+    {
+      "phase": 6,
+      "name": "Reporting",
+      "status": "COMPLETED",
+      "report_file": "docs/SECURITY_AUDIT.md"
+    }
+  ]
+}

@@ -68,17 +68,21 @@ la llamada se transcribe en tiempo real → al colgar se extrae el lead
 
 - `HANDSHAKE.md` — este archivo (leer primero, actualizar siempre)
 - `index.html` — landing page interactiva y simulador para GitHub Pages
-- `docs/OPEN_SOURCE_REFERENCES.md` — documentación de arquitectura reutilizada (Twenty CRM, Metabase BI, Dograh Voice/MCP)
-- `panel/` — Panel del Cliente (monitor web en vivo: llamadas, transcripción en tiempo real, leads, agenda y estado)
-- `agent/agent.py` — worker de LiveKit Agents (STT → LLM → TTS + envío a n8n)
+- `docs/OPEN_SOURCE_REFERENCES.md` — documentación de arquitectura reutilizada (Twenty CRM, Metabase BI, Dograh Voice/MCP, DocuSeal Firma Digital, Cloudflare Security Audit)
+- `docs/SECURITY_AUDIT.md` — informe ejecutivo de auditoría defensiva (estándar Cloudflare)
+- `security/findings.json` — ledger estructurado de hallazgos de seguridad
+- `security/coverage-ledger.json` — registro persistente de cobertura de componentes auditados
+- `panel/` — Panel del Cliente (monitor web en vivo: llamadas, transcripción en tiempo real, leads, agenda, firma digital DocuSeal y auditoría Cloudflare)
+- `agent/agent.py` — worker de LiveKit Agents (STT → LLM → TTS + tool-calling de calendario + envío a n8n)
 - `agent/prompts.py` — guion del agente de voz
 - `agent/piper_tts.py` — adapter TTS Piper (verificado contra SDK instalado)
 - `agent/lead_extract.py` — extracción de lead al colgar (DeepSeek, temp 0.1)
 - `agent/requirements.txt` — dependencias Python
 - `agent/.env.example` — plantilla (copiar a `.env`, nunca subir el real)
-- `agent/make_token.py` — genera token de prueba para la página web
+- `agent/make_token.py` — genera token de prueba para la página web (TTL 1h restringido)
 - `web/test-page.html` — página de prueba WebRTC básica (llamar desde el navegador)
 - `n8n/README.md` — formato del payload que recibe el webhook
+- `tests/` — suite de pruebas automatizadas (pipeline, Dograh tools, DocuSeal y Cloudflare security)
 
 ## 6. Bitácora (actualizar aquí mismo, no en otro archivo)
 
@@ -91,11 +95,13 @@ la llamada se transcribe en tiempo real → al colgar se extrae el lead
 - Probada la integración con n8n enviando payload de prueba: HTTP 200 recibido exitosamente en `centralita-test`.
 - ✅ **Página web de prueba y simulador desplegados en GitHub Pages**: `https://yoyocubano.github.io/la-centralita/`
 - ✅ **Panel del Cliente (Monitor Web en Vivo) construido y publicado**: `https://yoyocubano.github.io/la-centralita/panel/`
-- ⚡ **Reutilización de Arquitectura Open Source Verificada (Twenty, Metabase, Dograh)**:
-  - **`twentyhq/twenty`**: Modelo de datos de leads normalizado (`Person`, `Opportunity`, `Activity.Call`), pipeline Kanban interactivo en el panel con cálculo de importes por etapa, y especificación de integración directa vía n8n REST API.
-  - **`metabase/metabase`**: Dashboard analítico de alto impacto en el monitor: tarjetas KPI ejecutivas con deltas porcentuales, embudo visual de conversión comercial (18 llamadas → 4 citas), distribución horaria de tráfico en Luxemburgo y métricas de latencia/SLA.
-  - **`dograh-hq/dograh`**: Tool-calling nativo para agendamiento de citas en `agent/agent.py` (`check_calendar_availability`, `book_technical_meeting`) con LiveKit Agents 1.8 (`@llm.function_tool`), widget de reserva rápida y sincronización de citas.
-  - **Documentación Completa**: Creado `docs/OPEN_SOURCE_REFERENCES.md` con el detalle de mapeos y justificación técnica.
+- ⚡ **Reutilización de Arquitectura Open Source Verificada (Notas 24, 25 y Extra)**:
+  - **`twentyhq/twenty`** (Nota 24): Modelo de datos de leads normalizado (`Person`, `Opportunity`, `Activity.Call`), pipeline Kanban interactivo en el panel con cálculo de importes por etapa, y especificación de integración directa vía n8n REST API.
+  - **`metabase/metabase`** (Nota 24): Dashboard analítico de alto impacto en el monitor: tarjetas KPI ejecutivas con deltas porcentuales, embudo visual de conversión comercial (18 llamadas → 4 citas), distribución horaria de tráfico en Luxemburgo y métricas de latencia/SLA.
+  - **`dograh-hq/dograh`** (Nota 24): Tool-calling nativo para agendamiento de citas en `agent/agent.py` (`check_calendar_availability`, `book_technical_meeting`) con LiveKit Agents 1.8 (`@llm.function_tool`), widget de reserva rápida y sincronización de citas.
+  - **`docusealco/docuseal`** (Nota 24): Motor de firma digital electrónica para contratos de eventos de WELUX Events S.à r.l., integrado en el módulo de leads y pipeline comercial con sellado eIDAS y webhook n8n.
+  - **`cloudflare/security-audit-skill`** (Nota 25 y Nota extra): Framework automatizado de auditoría en 6 fases. Creados `security/findings.json` y `security/coverage-ledger.json` (0 vulnerabilidades críticas, postura HARDENED, secreto cero en git, DTLS-SRTP y RGPD Luxemburgo). Incorporado monitor de seguridad en el panel.
+- ✅ **Suite de tests ampliada**: 9 tests pasando (`pytest tests/`).
 - ⏳ A la espera de las credenciales (LiveKit Cloud, Deepgram, DeepSeek) para configurar `.env` y levantar el worker.
 
 ### 2026-10-01 — moise

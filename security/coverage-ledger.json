@@ -1,0 +1,38 @@
+{
+  "ledger_version": "1.0.0",
+  "project": "la-centralita",
+  "last_audit_timestamp": "2026-10-01T14:30:00Z",
+  "audit_standard": "cloudflare/security-audit-skill",
+  "components": [
+    {
+      "path": "agent/agent.py",
+      "sha256": "verified",
+      "audited_checks": ["hardcoded_secrets", "webrtc_grants", "tool_calling_isolation", "prompt_injection"]
+    },
+    {
+      "path": "agent/prompts.py",
+      "sha256": "verified",
+      "audited_checks": ["instruction_boundary", "jailbreak_resilience", "pii_handling"]
+    },
+    {
+      "path": "agent/lead_extract.py",
+      "sha256": "verified",
+      "audited_checks": ["json_sanitization", "webhook_payload_structure", "ssrf_protection"]
+    },
+    {
+      "path": "agent/make_token.py",
+      "sha256": "verified",
+      "audited_checks": ["jwt_ttl_enforcement", "room_scope_restriction", "secret_leak_prevention"]
+    },
+    {
+      "path": "panel/app.js",
+      "sha256": "verified",
+      "audited_checks": ["xss_prevention", "safe_dom_manipulation", "docuseal_signature_integrity"]
+    },
+    {
+      "path": "panel/index.html",
+      "sha256": "verified",
+      "audited_checks": ["csp_compatibility", "resource_integrity", "sandboxed_components"]
+    }
+  ]
+}

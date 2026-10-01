@@ -1,11 +1,13 @@
 # Reutilización de Arquitectura Open Source en La Centralita
 
 > **Documentación de referencias open source verificadas.**
-> Este documento detalla qué componentes, modelos de datos y patrones de diseño han sido adaptados y reutilizados de los proyectos de referencia: **Twenty** (CRM), **Metabase** (BI/Dashboards) y **Dograh** (Telefonía IA & MCP).
+> Este documento detalla qué componentes, modelos de datos y patrones de diseño han sido adaptados y reutilizados de las notas de arquitectura del proyecto:
+> - **Nota 24:** Twenty (CRM), Metabase (BI/Dashboards), Dograh (Telefonía IA & MCP), DocuSeal (Firma Digital Electrónica).
+> - **Nota 25 & Nota extra:** Cloudflare Security Audit Skill (`cloudflare/security-audit-skill`).
 
 ---
 
-## 1. Twenty CRM (`twentyhq/twenty` · ~57k ⭐ en GitHub)
+## 1. Twenty CRM (`twentyhq/twenty` · ~57k ⭐ en GitHub) [Nota 24]
 
 ### Rol en el proyecto
 Modelo de referencia y estándar de datos para el módulo **Bandeja de Leads & Oportunidades** del Panel del Cliente de La Centralita.
@@ -32,11 +34,10 @@ Modelo de referencia y estándar de datos para el módulo **Bandeja de Leads & O
     1. `POST /rest/people` (crea o actualiza el contacto con su teléfono `+352`).
     2. `POST /rest/opportunities` (crea la oportunidad vinculada con los requerimientos técnicos y fecha).
     3. `POST /rest/activities` (adjunta la transcripción completa de la llamada como nota auditada).
-- **Conclusión**: No es necesario escribir un CRM propio desde cero. El monitor actual de La Centralita funciona como visualizador operativo en vivo, y se conecta bidireccionalmente con la instancia de Twenty del cliente final mediante n8n.
 
 ---
 
-## 2. Metabase (`metabase/metabase` · ~49k ⭐ en GitHub)
+## 2. Metabase (`metabase/metabase` · ~49k ⭐ en GitHub) [Nota 24]
 
 ### Rol en el proyecto
 Estándar visual y de diseño para el **Dashboard Ejecutivo de Métricas, SLAs y Analítica** en el Panel del Cliente.
@@ -57,7 +58,7 @@ Estándar visual y de diseño para el **Dashboard Ejecutivo de Métricas, SLAs y
 
 ---
 
-## 3. Dograh (`dograh-hq/dograh` · ~5.8k ⭐ en GitHub)
+## 3. Dograh (`dograh-hq/dograh` · ~5.8k ⭐ en GitHub) [Nota 24]
 
 ### Rol en el proyecto
 Arquitectura de referencia para el **Pipeline de Voz con Tool-Calling (MCP)** y el módulo de **Agenda & Reserva Autónoma de Citas**.
@@ -75,12 +76,47 @@ Arquitectura de referencia para el **Pipeline de Voz con Tool-Calling (MCP)** y 
 
 ---
 
-## 4. Matriz de Síntesis Arquitectónica
+## 4. DocuSeal (`docusealco/docuseal` · ~18.6k ⭐ en GitHub) [Nota 24]
 
-| Módulo | Proyecto de Referencia | Aporte Concreto Integrado |
-| :--- | :--- | :--- |
-| **Bandeja de Leads** | `twentyhq/twenty` | Modelo Persona/Oportunidad, etapas Kanban (`Nuevo` → `Contactado` → `Agendado` → `Ganado`), conector API documentado. |
-| **Dashboard y Estado** | `metabase/metabase` | Tarjetas KPI con deltas, embudo de conversión, distribución horaria de tráfico y monitor de SLAs de latencia. |
-| **Pipeline y Agenda** | `dograh-hq/dograh` | Turn-taking oral ágil, barge-in sin pausas, tool-calling para slots de calendario y confirmación oral natural. |
-| **Transporte WebRTC** | `LiveKit Cloud` | Transporte ultra-eficiente SIP/WebRTC, audio Opus a 48kHz, sin dependencias de Twilio. |
-| **Post-Llamada** | `n8n` | Webhook centralizado (`centralita-test`) para distribución hacia CRM, correo y mensajería. |
+### Rol en el proyecto
+Motor de **Firma Digital Electrónica de Contratos y Presupuestos** integrado con el flujo comercial post-llamada.
+
+### Qué se reutilizó y adaptó
+1. **Flujo de Cierre y Firma eIDAS**:
+   - Cuando un lead calificado pasa a estado `agendado` o solicita presupuesto formal, el operador o el workflow automático de n8n puede generar un contrato de servicios técnicos de WELUX Events S.à r.l.
+2. **Componente Embebible & Notificaciones**:
+   - Modelo de formulario de firma digital (`docuseal-form`) con campos pre-poblados: nombre del cliente, empresa, teléfono luxemburgués (`+352`), fecha del evento, paquete técnico contratado e importe en euros.
+   - Sello criptográfico auditable de firma electrónica con fecha, hora e IP.
+   - Disparo de evento webhook a n8n (`document.completed`) que actualiza la oportunidad en el CRM a `GANADO / CONTRATADO`.
+
+---
+
+## 5. Cloudflare Security Audit Skill (`cloudflare/security-audit-skill`) [Nota 25 & Nota extra]
+
+### Rol en el proyecto
+Framework automatizado de **Auditoría de Seguridad y Endurecimiento Defensivo** en 6 fases para agentes y backends.
+
+### Qué se reutilizó y adaptó
+1. **Metodología en 6 Fases**:
+   - *Phase 1 (Reconnaissance)*: Mapeo de superficie de ataque (WebRTC, SIP, Webhooks n8n, TTS en memoria, Panel web).
+   - *Phase 2 (Coverage Tracking)*: Generación y mantenimiento del ledger estructurado [`security/coverage-ledger.json`](../security/coverage-ledger.json).
+   - *Phase 3 (Hunting & Vector Analysis)*: Búsqueda exhaustiva de vectores CWE (credenciales expuestas, XSS, inyección de prompts, secuestro de tokens).
+   - *Phase 4 (Candidate Validation)*: Mecanismo de sub-agente validador para refutar falsos positivos antes del reporte final.
+   - *Phase 5 (Findings Classification)*: Emisión del archivo canónico [`security/findings.json`](../security/findings.json) con severidades objetivas.
+   - *Phase 6 (Reporting)*: Generación del informe ejecutivo [`docs/SECURITY_AUDIT.md`](./SECURITY_AUDIT.md).
+2. **Monitor de Cumplimiento en el Panel**:
+   - Tarjeta en vivo en la sección *Estado del Sistema* que muestra la postura de seguridad (0 credenciales en git, cifrado DTLS-SRTP, tokens JWT efímeros de 1h, cumplimiento RGPD Luxemburgo).
+
+---
+
+## 6. Matriz de Síntesis Arquitectónica
+
+| Módulo | Fuente / Referencia | Origen | Aporte Concreto Integrado |
+| :--- | :--- | :--- | :--- |
+| **Bandeja de Leads** | `twentyhq/twenty` | Nota 24 | Modelo Persona/Oportunidad, etapas Kanban (`Nuevo` → `Contactado` → `Agendado` → `Ganado`), conector API documentado. |
+| **Dashboard y Estado** | `metabase/metabase` | Nota 24 | Tarjetas KPI con deltas, embudo de conversión, distribución horaria de tráfico y monitor de SLAs de latencia. |
+| **Pipeline y Agenda** | `dograh-hq/dograh` | Nota 24 | Turn-taking oral ágil, barge-in sin pausas, tool-calling para slots de calendario y confirmación oral natural. |
+| **Firma Electrónica** | `docusealco/docuseal` | Nota 24 | Generación y firma electrónica de contratos/presupuestos de eventos con sellado digital eIDAS y webhook n8n. |
+| **Auditoría y Seguridad** | `cloudflare/security-audit-skill` | Nota 25 / Extra | Protocolo en 6 fases, ledgers `findings.json` y `coverage-ledger.json`, verificación de secretos y blindaje de prompts. |
+| **Transporte WebRTC** | `LiveKit Cloud` | Arquitectura Core | Transporte ultra-eficiente SIP/WebRTC, audio Opus a 48kHz, sin dependencias de Twilio. |
+| **Post-Llamada** | `n8n` | Arquitectura Core | Webhook centralizado (`centralita-test`) para distribución hacia CRM, correo y mensajería. |

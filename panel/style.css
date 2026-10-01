@@ -1763,4 +1763,200 @@ body {
   font-weight: 600;
 }
 
+/* DocuSeal Electronic Signature Styling (Nota 24) */
+.docuseal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: rgba(16, 185, 129, 0.1);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.docuseal-badge.pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.docuseal-badge.draft {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  border-color: var(--border-light);
+}
+
+.btn-docuseal {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(212, 175, 55, 0.12);
+  color: var(--gold-light);
+  border: 1px solid var(--border-gold);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-docuseal:hover {
+  background: var(--gold);
+  color: #08090d;
+}
+
+/* DocuSeal Contract Preview Container */
+.docuseal-contract-paper {
+  background: #0d0f14;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 24px;
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+  line-height: 1.6;
+  max-height: 380px;
+  overflow-y: auto;
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.docuseal-contract-header {
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.docuseal-contract-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--gold-light);
+}
+
+.docuseal-seal-box {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px dashed var(--border-gold);
+  border-radius: 8px;
+  background: rgba(212, 175, 55, 0.04);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.docuseal-signature-mark {
+  font-family: 'Brush Script MT', cursive, sans-serif;
+  font-size: 1.8rem;
+  color: var(--gold-light);
+  transform: rotate(-3deg);
+  display: inline-block;
+}
+
+/* Cloudflare Security Audit Styling (Nota 25 / Extra) */
+.security-audit-card {
+  background: #10141d;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.security-audit-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(180deg, #38bdf8 0%, var(--emerald) 100%);
+}
+
+.security-audit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.security-score-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+  font-size: 0.82rem;
+  font-weight: 800;
+  border-radius: 20px;
+  letter-spacing: 0.04em;
+}
+
+.security-phase-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.security-phase-item {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.security-phase-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.security-phase-text h5 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+
+.security-phase-text p {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.json-viewer-container {
+  background: #06070a;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: #38bdf8;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+
 
