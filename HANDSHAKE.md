@@ -68,6 +68,7 @@ la llamada se transcribe en tiempo real → al colgar se extrae el lead
 
 - `HANDSHAKE.md` — este archivo (leer primero, actualizar siempre)
 - `index.html` — landing page interactiva y simulador para GitHub Pages
+- `panel/` — Panel del Cliente (monitor web en vivo: llamadas, transcripción en tiempo real, leads, agenda y estado)
 - `agent/agent.py` — worker de LiveKit Agents (STT → LLM → TTS + envío a n8n)
 - `agent/prompts.py` — guion del agente de voz
 - `agent/piper_tts.py` — adapter TTS Piper (verificado contra SDK instalado)
@@ -88,6 +89,9 @@ la llamada se transcribe en tiempo real → al colgar se extrae el lead
   2. **HTTP Server**: Fallback compatible con servidores HTTP de Piper (`PIPER_HTTP_URL`).
 - Probada la integración con n8n enviando payload de prueba: HTTP 200 recibido exitosamente en `centralita-test`.
 - ✅ **Página web de prueba y simulador desplegados en GitHub Pages**: `https://yoyocubano.github.io/la-centralita/`
+- ✅ **Panel del Cliente (Monitor Web en Vivo) construido y publicado**: `https://yoyocubano.github.io/la-centralita/panel/`
+  - Incluye: Módulo En Vivo con streaming de transcripción y waveform, Historial de llamadas con descarga de transcripciones, Bandeja de Leads interactiva con actualización de estados en LocalStorage, Agenda de citas en calendario mensual, y Monitor de Uptime y Salud del Pipeline.
+  - Arquitectura de datos desacoplada (`CentralitaDataProvider`) lista para conectar a eventos LiveKit / WebSocket.
 - ⏳ A la espera de las credenciales (LiveKit Cloud, Deepgram, DeepSeek) para configurar `.env` y levantar el worker.
 
 ### 2026-10-01 — moise

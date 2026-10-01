@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitor en Vivo · Panel del Cliente | La Centralita (WELUX)</title>
+  <meta name="description" content="Panel de control en vivo para el dueño del negocio: transcripción en tiempo real de llamadas, historial completo, extracción de leads y agenda de citas.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- App Wrapper -->
+  <div class="dashboard-layout">
+    
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-emblem">W</div>
+        <div class="brand-text">
+          <span class="brand-title">LA CENTRALITA</span>
+          <span class="brand-subtitle">WELUX EVENTS · LUX</span>
+        </div>
+      </div>
+
+      <!-- Live Pipeline Status Pill in Sidebar -->
+      <div class="connection-status-box">
+        <div class="conn-indicator-row">
+          <span class="live-dot pulse"></span>
+          <span class="conn-text" id="connText">PIPELINE CONECTADO</span>
+        </div>
+        <div class="conn-details">
+          <span>LiveKit WebRTC</span>
+          <span class="latency-pill" id="liveLatencyBadge">38 ms RTT</span>
+        </div>
+      </div>
+
+      <!-- Navigation Menu -->
+      <nav class="sidebar-nav">
+        <a href="#envivo" class="nav-item active" data-tab="envivo">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" x2="12" y1="19" y2="22"/>
+          </svg>
+          <span>En Vivo</span>
+          <span class="nav-badge live" id="liveCallBadge">1 ACTIVA</span>
+        </a>
+
+        <a href="#llamadas" class="nav-item" data-tab="llamadas">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+          </svg>
+          <span>Llamadas</span>
+          <span class="nav-counter" id="callCountBadge">18</span>
+        </a>
+
+        <a href="#leads" class="nav-item" data-tab="leads">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+          <span>Bandeja de Leads</span>
+          <span class="nav-counter gold" id="leadsCountBadge">6</span>
+        </a>
+
+        <a href="#agenda" class="nav-item" data-tab="agenda">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <span>Agenda & Citas</span>
+          <span class="nav-counter" id="agendaCountBadge">4</span>
+        </a>
+
+        <a href="#estado" class="nav-item" data-tab="estado">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+          <span>Estado del Sistema</span>
+          <span class="nav-dot-status ok"></span>
+        </a>
+      </nav>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <a href="../" class="btn-sidebar-link">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+          Página de Prueba Pública
+        </a>
+        <div class="owner-tag">
+          <span>WELUX Pro Dashboard v0.2</span>
+          <span class="mode-tag">Fase 1 · Demo & Operación</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-body">
+      
+      <!-- Top Navigation Bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 class="view-title" id="currentViewTitle">Monitor de Llamada en Vivo</h1>
+          <p class="view-subtitle" id="currentViewSubtitle">Supervisión en tiempo real del diálogo, audio streaming y extracción automática de lead.</p>
+        </div>
+
+        <div class="topbar-right">
+          <button class="btn-demo-trigger" id="btnSimulateTrigger" onclick="triggerIncomingCallDemo()">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/>
+            </svg>
+            <span>Simular Llamada Entrante</span>
+          </button>
+          
+          <div class="date-badge" id="currentDateDisplay">1 Oct 2026</div>
+        </div>
+      </header>
+
+      <!-- VIEW 1: EN VIVO (Live Call Monitor) -->
+      <section class="view-panel active" id="view-envivo">
+        
+        <!-- Live Call Banner -->
+        <div class="live-call-banner">
+          <div class="caller-meta">
+            <div class="caller-avatar" id="liveCallerAvatar">JW</div>
+            <div class="caller-text">
+              <div class="caller-name-row">
+                <span class="caller-name" id="liveCallerName">Jean-Luc Weber</span>
+                <span class="call-badge-live">EN LLAMADA</span>
+                <span class="caller-origin" id="liveCallerNumber">+352 691 452 890 (Luxemburgo)</span>
+              </div>
+              <div class="caller-subline">
+                <span>Operadora: <strong>Sofía (IA WELUX)</strong></span>
+                <span class="sep">•</span>
+                <span>Sala: <code id="liveRoomName">centralita-welux-live</code></span>
+                <span class="sep">•</span>
+                <span>Transporte: <strong>LiveKit WebRTC Opus 48kHz</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="call-stats-group">
+            <div class="timer-box">
+              <span class="timer-label">DURACIÓN</span>
+              <span class="timer-digits" id="liveDurationTimer">01:42</span>
+            </div>
+            <!-- Audio Waveform Visualizer -->
+            <div class="waveform-box">
+              <span class="timer-label">STREAMING DE VOZ</span>
+              <canvas id="waveformCanvas" width="160" height="34"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2-Columns Grid: Live Transcript vs Real-time Lead Extraction -->
+        <div class="live-grid">
+          
+          <!-- Transcript Stream -->
+          <div class="panel-card stream-card">
+            <div class="card-header">
+              <div class="header-left">
+                <span class="icon-circle live"></span>
+                <h3 class="card-title">Transcripción en Streaming (Deepgram Nova-3)</h3>
+              </div>
+              <div class="header-right">
+                <span class="latency-tag" id="sttLatencyTag">&lt; 240ms STT</span>
+                <button class="btn-icon" title="Copiar transcripción" onclick="copyLiveTranscript()">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="chat-stream-body" id="liveChatStream">
+              <!-- Dynamically populated with conversation turns -->
+            </div>
+
+            <div class="stream-footer">
+              <div class="typing-indicator" id="liveTypingIndicator">
+                <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+                <span class="typing-text" id="typingText">Sofía escuchando al cliente...</span>
+              </div>
+              <div class="stream-actions">
+                <button class="btn-sm btn-outline" onclick="toggleAudioMute()">
+                  <span id="muteLabel">Silenciar Monitor</span>
+                </button>
+                <button class="btn-sm btn-danger" onclick="hangupActiveCall()">
+                  Colgar Llamada
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Real-Time Extracted Lead Card -->
+          <div class="panel-card lead-card">
+            <div class="card-header">
+              <div class="header-left">
+                <span class="icon-circle gold"></span>
+                <h3 class="card-title">Extracción de Lead en Vivo (DeepSeek V3)</h3>
+              </div>
+              <span class="sync-tag" id="n8nSyncTag">Webhook n8n Listo</span>
+            </div>
+
+            <div class="lead-card-body">
+              <div class="lead-field-group">
+                <label>Nombre del Contacto</label>
+                <div class="lead-val highlight" id="extLeadName">Jean-Luc Weber</div>
+              </div>
+
+              <div class="lead-field-row">
+                <div class="lead-field-group">
+                  <label>Teléfono</label>
+                  <div class="lead-val" id="extLeadPhone">+352 691 452 890</div>
+                </div>
+                <div class="lead-field-group">
+                  <label>Fecha del Evento</label>
+                  <div class="lead-val text-gold" id="extLeadDate">18 de Noviembre 2026</div>
+                </div>
+              </div>
+
+              <div class="lead-field-group">
+                <label>Tipo de Evento & Interés</label>
+                <div class="lead-val" id="extLeadInterest">Gala corporativa de fin de año (150 personas)</div>
+              </div>
+
+              <div class="lead-field-group">
+                <label>Requerimientos Técnicos Detectados</label>
+                <div class="tags-container" id="extLeadTags">
+                  <span class="tag">Iluminación Arquitectónica</span>
+                  <span class="tag">Sonido Line Array</span>
+                  <span class="tag">Micrófonos Inalámbricos</span>
+                  <span class="tag">DJ Set</span>
+                </div>
+              </div>
+
+              <div class="lead-field-group">
+                <label>Resumen Conversacional</label>
+                <p class="lead-summary-text" id="extLeadSummary">
+                  Cliente busca producción técnica completa para salón en Kirchberg. Requiere propuesta formal antes del viernes. Presupuesto estimado flexible.
+                </p>
+              </div>
+
+              <div class="lead-auto-status">
+                <div class="status-pill-box">
+                  <span class="status-dot"></span>
+                  <span>Estado: <strong id="extLeadStatus">Nuevo Lead Calificado</strong></span>
+                </div>
+                <div class="sentiment-box">
+                  <span>Sentimiento: <strong class="text-green">Muy Positivo (94%)</strong></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-footer-actions">
+              <button class="btn-action-wa" onclick="contactViaWhatsApp()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                  <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2z"/>
+                </svg>
+                Abrir WhatsApp (+352)
+              </button>
+              <button class="btn-action-schedule" onclick="scheduleDirectMeeting()">
+                Agendar en Calendario
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- VIEW 2: HISTORIAL DE LLAMADAS -->
+      <section class="view-panel" id="view-llamadas">
+        <div class="table-container-card">
+          <div class="table-toolbar">
+            <div class="filter-group">
+              <button class="filter-btn active" onclick="filterCalls('all')">Todas (<span id="totalCallsCount">18</span>)</button>
+              <button class="filter-btn" onclick="filterCalls('today')">Hoy (6)</button>
+              <button class="filter-btn" onclick="filterCalls('leads')">Con Lead Generado (14)</button>
+            </div>
+            <div class="search-box">
+              <input type="text" id="callSearchInput" placeholder="Buscar por cliente o teléfono..." onkeyup="searchCallsTable()">
+            </div>
+            <button class="btn-sm btn-outline" onclick="exportCallsReport()">
+              📥 Exportar Historial (CSV)
+            </button>
+          </div>
+
+          <div class="responsive-table-wrapper">
+            <table class="data-table" id="callsTable">
+              <thead>
+                <tr>
+                  <th>Fecha & Hora</th>
+                  <th>Cliente / Número</th>
+                  <th>Duración</th>
+                  <th>Operadora</th>
+                  <th>Motivo / Interés</th>
+                  <th>Lead Extraído</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="callsTableBody">
+                <!-- Populated via JavaScript -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 3: BANDEJA DE LEADS -->
+      <section class="view-panel" id="view-leads">
+        <div class="table-container-card">
+          <div class="table-toolbar">
+            <div class="filter-group">
+              <button class="filter-btn active" onclick="filterLeads('all')">Todos (<span id="totalLeadsCount">6</span>)</button>
+              <button class="filter-btn" onclick="filterLeads('nuevo')">Nuevos</button>
+              <button class="filter-btn" onclick="filterLeads('contactado')">Contactados</button>
+              <button class="filter-btn" onclick="filterLeads('agendado')">Agendados</button>
+            </div>
+            <button class="btn-sm btn-primary" onclick="exportLeadsJson()">
+              ⚡ Exportar a n8n / CRM
+            </button>
+          </div>
+
+          <div class="leads-grid" id="leadsCardsGrid">
+            <!-- Cards populated dynamically -->
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 4: AGENDA DE CITAS -->
+      <section class="view-panel" id="view-agenda">
+        <div class="agenda-layout">
+          <!-- Calendar View -->
+          <div class="panel-card calendar-card">
+            <div class="calendar-header">
+              <h3 class="card-title">Octubre 2026</h3>
+              <div class="cal-nav-buttons">
+                <button class="btn-cal-nav">&lt;</button>
+                <button class="btn-cal-today">Hoy</button>
+                <button class="btn-cal-nav">&gt;</button>
+              </div>
+            </div>
+            <div class="calendar-grid" id="calendarDaysGrid">
+              <!-- Calendar days generated via JS -->
+            </div>
+          </div>
+
+          <!-- Appointments List -->
+          <div class="panel-card appointments-card">
+            <div class="card-header">
+              <h3 class="card-title">Citas Agendadas por la Operadora</h3>
+              <span class="badge-gold">4 Citas Próximas</span>
+            </div>
+            <div class="appointments-list" id="appointmentsList">
+              <!-- Appts populated via JS -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 5: ESTADO DEL SISTEMA -->
+      <section class="view-panel" id="view-estado">
+        <div class="status-panel-grid">
+          
+          <!-- Services Health Status -->
+          <div class="panel-card">
+            <h3 class="card-title" style="margin-bottom: 20px;">Componentes del Pipeline en Tiempo Real</h3>
+            <div class="services-list">
+              <div class="service-row">
+                <div class="srv-left">
+                  <span class="status-dot-lg ok"></span>
+                  <div>
+                    <strong>LiveKit Cloud WebRTC Core</strong>
+                    <p>Servidor SFU y transporte de baja latencia (Tier Build)</p>
+                  </div>
+                </div>
+                <span class="srv-badge ok">OPERATIVO (1000 min)</span>
+              </div>
+
+              <div class="service-row">
+                <div class="srv-left">
+                  <span class="status-dot-lg ok"></span>
+                  <div>
+                    <strong>Deepgram Nova-3 (STT Streaming)</strong>
+                    <p>Reconocimiento de voz en español con VAD y puntuación</p>
+                  </div>
+                </div>
+                <span class="srv-badge ok">&lt; 240ms (Trial $200)</span>
+              </div>
+
+              <div class="service-row">
+                <div class="srv-left">
+                  <span class="status-dot-lg ok"></span>
+                  <div>
+                    <strong>DeepSeek V3 (LLM Razonamiento)</strong>
+                    <p>Generación conversacional y estructuración JSON (OpenAI-compatible)</p>
+                  </div>
+                </div>
+                <span class="srv-badge ok">ONLINE (api.deepseek.com)</span>
+              </div>
+
+              <div class="service-row">
+                <div class="srv-left">
+                  <span class="status-dot-lg ok"></span>
+                  <div>
+                    <strong>Piper Local TTS (Síntesis en Proceso)</strong>
+                    <p>Modelo ONNX en memoria <code>es_ES-sharvard-medium</code> a 22kHz</p>
+                  </div>
+                </div>
+                <span class="srv-badge ok">0€ LOCAL (&lt;50ms)</span>
+              </div>
+
+              <div class="service-row">
+                <div class="srv-left">
+                  <span class="status-dot-lg ok"></span>
+                  <div>
+                    <strong>n8n Cloud Webhook Dispatcher</strong>
+                    <p><code>https://weluxdigitalservices.app.n8n.cloud/webhook/centralita-test</code></p>
+                  </div>
+                </div>
+                <span class="srv-badge ok">HTTP 200 VERIFICADO</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- System KPIs and Savings -->
+          <div class="panel-card">
+            <h3 class="card-title" style="margin-bottom: 20px;">Métricas Operativas del Negocio</h3>
+            <div class="kpi-grid">
+              <div class="kpi-item">
+                <span class="kpi-number">99.98%</span>
+                <span class="kpi-label">Uptime del Agente</span>
+              </div>
+              <div class="kpi-item">
+                <span class="kpi-number">18</span>
+                <span class="kpi-label">Llamadas Atendidas Hoy</span>
+              </div>
+              <div class="kpi-item">
+                <span class="kpi-number">740 ms</span>
+                <span class="kpi-label">Latencia E2E Promedio</span>
+              </div>
+              <div class="kpi-item">
+                <span class="kpi-number text-gold">142,50 €</span>
+                <span class="kpi-label">Ahorro vs Twilio este mes</span>
+              </div>
+            </div>
+
+            <!-- Architectural Assurance -->
+            <div class="assurance-box">
+              <h4>🛡️ Aislamiento y Reglas de Producción</h4>
+              <ul>
+                <li><strong>Rebeca AI intacta:</strong> El repositorio <code>welux-events</code> no sufre modificaciones.</li>
+                <li><strong>Cero Twilio:</strong> Infraestructura 100% basada en SIP abierto y LiveKit.</li>
+                <li><strong>Seguridad de Datos:</strong> Todas las credenciales se almacenan localmente en <code>.env</code> fuera de git.</li>
+              </ul>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Transcript Modal -->
+  <div class="modal-backdrop" id="transcriptModal" onclick="closeModalOnBackdrop(event)">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modalCallTitle">Detalles de la Llamada</h3>
+        <button class="btn-close-modal" onclick="closeTranscriptModal()">&times;</button>
+      </div>
+      <div class="modal-meta-row" id="modalCallMeta">
+        <!-- Meta info -->
+      </div>
+      <div class="modal-body" id="modalTranscriptContent">
+        <!-- Full transcript -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm btn-outline" onclick="downloadTranscriptFile('txt')">Descargar .TXT</button>
+        <button class="btn-sm btn-outline" onclick="downloadTranscriptFile('json')">Descargar .JSON</button>
+        <button class="btn-sm btn-primary" onclick="closeTranscriptModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
