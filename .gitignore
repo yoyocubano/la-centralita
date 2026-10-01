@@ -15,3 +15,11 @@ venv/
 # Modelos binarios (descargar con scripts/download_models.sh)
 models/
 *.onnx
+
+# Datos locales persistentes y colas
+data/
+*.log
+
+# Paquete de diseño crudo (los assets procesados residen en panel/)
+design-package/
+
