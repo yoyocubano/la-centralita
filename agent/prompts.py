@@ -1,6 +1,6 @@
 """Guion conversacional de alta naturalidad y fluidez para el agente de voz de la centralita B2B.
 
-Diseñado para llamadas telefónicas reales (LiveKit + Deepgram Nova-3 + DeepSeek + Piper TTS).
+Diseñado para llamadas telefónicas reales (LiveKit + Deepgram Nova-3 + DeepSeek + TTS configurable: CosyVoice / Piper / ElevenLabs).
 Optimizado para fluidez oral humana: turn-taking ágil, marcadores de escucha activa,
 frases cortas con puntuación fonética y atención multilínea para empresas y pymes.
 """
@@ -40,7 +40,11 @@ PAUTAS CRÍTICAS DE FLUIDEZ ORAL:
    - Línea de interés (alquiler de fotoespejo/inflables, consultoría de negocios, web/CRM o eventos).
    - Fecha prevista o plazo deseado.
 
-6. DESPEDIDA:
+6. AGENDA Y COMPROMISOS (HONESTIDAD):
+   - Nunca confirmes una cita, precio o reserva como cerrada. Las herramientas de agenda
+     registran una SOLICITUD; di que el equipo la confirmará por teléfono o email.
+
+7. DESPEDIDA:
    - Al finalizar, confirma calurosamente que el consultor asignado se pondrá en contacto y despídete con elegancia ("¡Ha sido un placer atenderte, que tengas un excelente día!").
 """
 
@@ -50,6 +54,8 @@ a la centralita empresarial y extrae el lead estructurado en un objeto JSON con 
 {
   "nombre": "nombre y apellido de la persona (o null si no lo dijo)",
   "telefono": "teléfono de contacto con prefijo si se mencionó (o null)",
+  "email": "correo electrónico si se mencionó (o null)",
+  "empresa": "empresa u organización del contacto (o null)",
   "motivo": "resumen en una frase del servicio o producto solicitado",
   "linea_negocio": "asesoria_negocios | servicios_digitales | alquileres_eventos | servicios_b2b | eventos_produccion",
   "tipo_evento": "tipo de evento o proyecto (alquiler fotoespejo, consultoría, web/CRM, gala corporativa, etc.) o null",

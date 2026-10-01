@@ -1,38 +1,96 @@
 {
   "ledger_version": "1.0.0",
   "project": "la-centralita",
-  "last_audit_timestamp": "2026-10-01T14:30:00Z",
-  "audit_standard": "cloudflare/security-audit-skill",
+  "last_audit_timestamp": "2026-10-01",
+  "audit_standard": "Auditoría manual línea por línea + tests de regresión",
   "components": [
     {
+      "path": "server/app.py",
+      "audited": true
+    },
+    {
       "path": "agent/agent.py",
-      "sha256": "verified",
-      "audited_checks": ["hardcoded_secrets", "webrtc_grants", "tool_calling_isolation", "prompt_injection"]
+      "audited": true
+    },
+    {
+      "path": "agent/post_call.py",
+      "audited": true
+    },
+    {
+      "path": "agent/sheets_sync.py",
+      "audited": true
+    },
+    {
+      "path": "agent/email_notify.py",
+      "audited": true
+    },
+    {
+      "path": "agent/docuseal_client.py",
+      "audited": true
+    },
+    {
+      "path": "agent/config.py",
+      "audited": true
     },
     {
       "path": "agent/prompts.py",
-      "sha256": "verified",
-      "audited_checks": ["instruction_boundary", "jailbreak_resilience", "pii_handling"]
+      "audited": true
     },
     {
-      "path": "agent/lead_extract.py",
-      "sha256": "verified",
-      "audited_checks": ["json_sanitization", "webhook_payload_structure", "ssrf_protection"]
+      "path": "agent/piper_tts.py",
+      "audited": true
+    },
+    {
+      "path": "agent/cosyvoice_tts.py",
+      "audited": true
+    },
+    {
+      "path": "agent/tts_factory.py",
+      "audited": true
     },
     {
       "path": "agent/make_token.py",
-      "sha256": "verified",
-      "audited_checks": ["jwt_ttl_enforcement", "room_scope_restriction", "secret_leak_prevention"]
-    },
-    {
-      "path": "panel/app.js",
-      "sha256": "verified",
-      "audited_checks": ["xss_prevention", "safe_dom_manipulation", "docuseal_signature_integrity"]
+      "audited": true
     },
     {
       "path": "panel/index.html",
-      "sha256": "verified",
-      "audited_checks": ["csp_compatibility", "resource_integrity", "sandboxed_components"]
+      "audited": true
+    },
+    {
+      "path": "panel/app.js",
+      "audited": true
+    },
+    {
+      "path": "panel/style.css",
+      "audited": true
+    },
+    {
+      "path": "index.html",
+      "audited": true
+    },
+    {
+      "path": "web/app.js",
+      "audited": true
+    },
+    {
+      "path": "firebase.json",
+      "audited": true
+    },
+    {
+      "path": ".firebaserc",
+      "audited": true
+    },
+    {
+      "path": "n8n/workflows/la-centralita-post-call.json",
+      "audited": true
+    },
+    {
+      "path": ".env.example",
+      "audited": true
+    },
+    {
+      "path": "tests/",
+      "audited": true
     }
   ]
 }

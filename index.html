@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <meta name="centralita-api-base" content="">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LA CENTRALITA — Agente de Voz IA para WELUX Events (Luxemburgo)</title>
   <meta name="description" content="Centralita telefónica con agente de voz natural de ultra baja latencia para PYMES en Luxemburgo. LiveKit Agents + Deepgram Nova-3 + DeepSeek + Piper TTS + n8n.">
@@ -1633,8 +1634,8 @@
           "requiere_seguimiento": true
         },
         "despacho_n8n": {
-          "status": 200,
-          "webhook": "https://weluxdigitalservices.app.n8n.cloud/webhook/centralita-test",
+          "status": "SIMULADO — demo local del navegador, no se envía ningún dato",
+          "webhook": "n8n (endpoint privado, configurado en el servidor)",
           "timestamp": new Date().toISOString()
         }
       };
@@ -1793,9 +1794,10 @@
       logEl.textContent = "Solicitando conexión segura WebRTC con la centralita...";
 
       try {
-        const tokenRes = await fetch("/api/token?room=centralita-test", {
-          headers: { "Authorization": "Bearer centralita-secure-token-2026" }
-        });
+        // Token efímero de la demo pública (sala única, TTL 10 min, rate-limit en servidor).
+        // El navegador nunca contiene secretos: si la demo está desactivada, responde 404.
+        const apiBase = (document.querySelector('meta[name="centralita-api-base"]')?.content || "").replace(/\/$/, "");
+        const tokenRes = await fetch(`${apiBase}/api/public/demo-token`, { method: "POST" });
         if (tokenRes.ok) {
           const data = await tokenRes.json();
           livekitRoom = new LivekitClient.Room();

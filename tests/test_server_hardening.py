@@ -1,95 +1,149 @@
-"""Pruebas de verificación para el endurecimiento del backend (Trabajo 2).
-
-Verifica:
-  1. Inyección de cabeceras de seguridad HTTP (X-Content-Type-Options, X-Frame-Options, X-Request-ID).
-  2. Validación estricta con esquemas Pydantic v2 (CallEventModel, DocuSealWebhookModel).
-  3. Sobre de error estructurado JSON (error: True, status_code, timestamp, path).
-  4. Formato de logging estructurado en JSON.
-"""
+"""Endurecimiento HTTP, esquemas, logging y pipeline post-llamada."""
 
 import json
 import logging
-from fastapi.testclient import TestClient
-from server.app import (
-    app,
-    CallEventModel,
-    DocuSealWebhookModel,
-    StructuredJsonFormatter,
-    get_authorized_tokens,
-)
 
-client = TestClient(app)
+import pytest
+
+from agent.post_call import PostCallProcessor, format_duration
+from server.app import CallEventModel, StructuredJsonFormatter
 
 
-def test_security_headers_injected_on_responses():
-    """Verifica que las cabeceras de endurecimiento HTTP se inyecten en todas las respuestas."""
+def test_security_headers_injected_on_responses(client):
     response = client.get("/api/status")
     assert response.status_code == 200
-    assert response.headers.get("x-content-type-options") == "nosniff"
-    assert response.headers.get("x-frame-options") == "SAMEORIGIN"
-    assert response.headers.get("x-xss-protection") == "1; mode=block"
-    assert response.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
-    assert "x-request-id" in response.headers
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["x-xss-protection"] == "0"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["cache-control"] == "no-store"
+    assert "default-src 'none'" in response.headers["content-security-policy"]
     assert len(response.headers["x-request-id"]) > 10
 
 
-def test_structured_error_envelope():
-    """Verifica que los errores HTTP retornen el envelope estructurado auditable."""
+def test_api_docs_disabled_by_default(client):
+    assert client.get("/api/docs").status_code == 404
+    assert client.get("/api/openapi.json").status_code == 404
+
+
+def test_structured_error_envelope(client):
     response = client.get("/api/token?room=centralita-test")
-    assert response.status_code == 401
     data = response.json()
-    assert data.get("error") is True
-    assert data.get("status_code") == 401
-    assert "detail" in data
-    assert "timestamp" in data
-    assert data.get("path") == "/api/token"
+    assert response.status_code == 401
+    assert data["error"] is True and data["status_code"] == 401 and data["path"] == "/api/token"
+    assert response.headers.get("www-authenticate") == "Bearer"
 
 
-def test_pydantic_v2_call_event_validation():
-    """Verifica la validación de tipos e invariantes de Pydantic v2 para CallEventModel."""
-    valid_payload = {
-        "type": "call_ended",
-        "call_id": "call-12345",
-        "duration": "01:30",
-        "room": "centralita-test",
-        "lead": {"nombre": "Sophie", "telefono": "+352 691 111 222"},
-    }
-    model = CallEventModel.model_validate(valid_payload)
-    assert model.type == "call_ended"
-    assert model.call_id == "call-12345"
+def test_call_event_model_validation():
+    model = CallEventModel.model_validate({"type": "call_ended", "call_id": "c-1", "lead": {"nombre": "Sophie"}})
     assert model.lead["nombre"] == "Sophie"
+    with pytest.raises(Exception):
+        CallEventModel.model_validate({"type": "transcript_delta", "role": "admin", "text": "x"})
+    with pytest.raises(Exception):
+        CallEventModel.model_validate({"type": "call_ended", "unexpected": 1})
 
 
 def test_structured_json_logger_formatter():
-    """Verifica que StructuredJsonFormatter produzca un JSON parseable con timestamp y level."""
-    formatter = StructuredJsonFormatter()
-    record = logging.LogRecord(
-        name="test.logger",
-        level=logging.INFO,
-        pathname="test.py",
-        lineno=10,
-        msg="Operación completada exitosamente",
-        args=(),
-        exc_info=None,
+    record = logging.LogRecord("test.logger", logging.INFO, "t.py", 10, "Operación completada", (), None)
+    record.extra_data = {"test_metric": 42}
+    parsed = json.loads(StructuredJsonFormatter().format(record))
+    assert parsed["level"] == "INFO" and parsed["test_metric"] == 42 and "timestamp" in parsed
+
+
+def test_internal_metrics_declare_scope_and_assumptions(client, auth_headers):
+    data = client.get("/api/system/internal", headers=auth_headers).json()
+    assert data["ambito"] == "sesion_actual_del_servidor"
+    assert "supuestos" in data and data["llamadas_totales_atendidas"] == 0
+
+
+def test_call_ended_event_is_persisted_in_session(client, auth_headers):
+    client.post("/api/call-event", json={"type": "call_ended", "call_id": "c1", "lead": {"nombre": "Ana"}}, headers=auth_headers)
+    calls = client.get("/api/calls", headers=auth_headers).json()
+    assert calls["count"] == 1 and calls["calls"][0]["call_id"] == "c1"
+
+
+def test_format_duration():
+    assert format_duration(0) == "00:00"
+    assert format_duration(46.2) == "00:46"
+    assert format_duration(125) == "02:05"
+
+
+@pytest.mark.asyncio
+async def test_simulated_pipeline_never_touches_sheet_or_email(monkeypatch):
+    processor = PostCallProcessor()
+
+    async def forbidden(*_a, **_k):
+        raise AssertionError("simulación no debe escribir en Sheets ni enviar email")
+
+    monkeypatch.setattr(processor.sheets_sync, "sync_lead", forbidden)
+    monkeypatch.setattr(processor.email_notifier, "send_post_call_notification", forbidden)
+    result = await processor.process_call_ended("room", "p", 10, [{"role": "user", "text": "hola " * 20}], simulated=True)
+    assert result["simulated"] is True
+    assert result["sheets_sync"]["status"] == "SKIPPED_SIMULATION"
+
+
+@pytest.mark.asyncio
+async def test_real_pipeline_writes_sheet_and_email_and_keeps_roles(monkeypatch):
+    processor = PostCallProcessor()
+    seen = {}
+
+    async def fake_sync(lead):
+        seen["sheet"] = lead
+        return {"status": "SYNCED_ONLINE", "lead_id": "abc"}
+
+    async def fake_email(info):
+        seen["email"] = info
+        return {"status": "SENT"}
+
+    monkeypatch.setattr(processor.sheets_sync, "sync_lead", fake_sync)
+    monkeypatch.setattr(processor.email_notifier, "send_post_call_notification", fake_email)
+    result = await processor.process_call_ended(
+        "room", "p", 125,
+        [{"role": "assistant", "text": "Hola, soy Sofía"}, {"role": "user", "text": "Quiero una web"}],
     )
-    record.extra_data = {"test_metric": 42, "user": "auditor"}
-    formatted = formatter.format(record)
-    parsed = json.loads(formatted)
-    assert parsed["level"] == "INFO"
-    assert parsed["logger"] == "test.logger"
-    assert "Operación completada exitosamente" in parsed["message"]
-    assert parsed["test_metric"] == 42
-    assert "timestamp" in parsed
+    assert result["full_transcript"] == "Sofía (WELUX): Hola, soy Sofía\nCliente: Quiero una web"
+    assert seen["email"]["duration_formatted"] == "02:05"
+    assert seen["sheet"]["valor_eur"] == "Por cotizar"
+    assert result["lead_id"] == "abc"
 
 
-def test_call_transfer_and_hangup_endpoints():
+def test_lead_stage_update_validation(client, auth_headers):
+    assert client.post("/api/leads/abc/stage", json={"stage": "ganado"}).status_code == 401
+    assert client.post("/api/leads/abc/stage", json={"stage": "borrado"}, headers=auth_headers).status_code == 422
+    assert client.post("/api/leads/a%20b/stage", json={"stage": "ganado"}, headers=auth_headers).status_code == 400
+    # Sin Sheets configurado no se finge el guardado
+    assert client.post("/api/leads/abc/stage", json={"stage": "ganado"}, headers=auth_headers).status_code == 503
+
+
+def test_lead_stage_update_writes_sheet(client, auth_headers, monkeypatch):
+    from agent.sheets_sync import GoogleSheetsSync
+    calls = {}
+
+    async def fake_update(self, lead_id, stage):
+        calls["args"] = (lead_id, stage)
+        return "updated"
+
+    monkeypatch.setattr(GoogleSheetsSync, "update_stage", fake_update)
+    res = client.post("/api/leads/abc123/stage", json={"stage": "contactado"}, headers=auth_headers)
+    assert res.status_code == 200 and calls["args"] == ("abc123", "contactado")
+
+
+def test_appointments_endpoint_reads_agent_requests(client, auth_headers, tmp_path, monkeypatch):
+    import server.app as server_app
+    f = tmp_path / "appointment_requests.jsonl"
+    f.write_text('{"id": "1", "status": "PENDIENTE_CONFIRMACION"}\n{"id": "2", "status": "PENDIENTE_CONFIRMACION"}\n', encoding="utf-8")
+    monkeypatch.setattr(server_app, "APPOINTMENT_REQUESTS_FILE", f)
+    assert client.get("/api/appointments").status_code == 401
+    body = client.get("/api/appointments", headers=auth_headers).json()
+    assert [a["id"] for a in body["appointments"]] == ["2", "1"]
+
+
+def test_call_transfer_and_hangup_endpoints(client, auth_headers):
     """Verifica endpoints de transferencia y finalización de llamada."""
-    headers = {"Authorization": "Bearer centralita-secure-token-2026"}
-    
     # 1. Transferencia
     transfer_res = client.post(
         "/api/call/transfer",
-        headers=headers,
+        headers=auth_headers,
         json={
             "room": "centralita-test",
             "target_operator": "Marc Becker (Supervisor)",
@@ -104,26 +158,25 @@ def test_call_transfer_and_hangup_endpoints():
     # 2. Finalización
     hangup_res = client.post(
         "/api/call/hangup",
-        headers=headers,
+        headers=auth_headers,
         json={"room": "centralita-test", "reason": "Terminada por operador"}
     )
     assert hangup_res.status_code == 200
     assert hangup_res.json()["status"] == "terminated"
 
 
-def test_auth_verify_endpoint():
+def test_auth_verify_endpoint(client):
     """Verifica endpoint de autenticación real contra token autorizado."""
-    # Token correcto
-    res_ok = client.post("/api/auth/verify", json={"token": "centralita-secure-token-2026"})
+    from tests.conftest import TEST_TOKEN
+    res_ok = client.post("/api/auth/verify", json={"token": TEST_TOKEN})
     assert res_ok.status_code == 200
     assert res_ok.json()["authenticated"] is True
 
-    # Token incorrecto
     res_fail = client.post("/api/auth/verify", json={"token": "token-invalido-123"})
     assert res_fail.status_code == 401
 
 
-def test_ycloud_whatsapp_webhook_verification_and_event():
+def test_ycloud_whatsapp_webhook_verification_and_event(client):
     """Verifica handshake y recepción de mensajes/notas de voz de YCloud WhatsApp Business API."""
     # 1. Challenge verification
     verify_res = client.get(
@@ -168,4 +221,3 @@ def test_ycloud_whatsapp_webhook_verification_and_event():
     )
     assert voice_res.status_code == 200
     assert voice_res.json()["is_voice"] is True
-

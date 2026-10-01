@@ -35,9 +35,9 @@ Authorization: Bearer <TOKEN>
 ```
 
 Los tokens autorizados se resuelven contra:
-- `Config.AUTH_TOKEN` (variable de entorno `AUTH_TOKEN`)
-- `Config.LIVEKIT_API_SECRET`
-- `centralita-secure-token-2026` (token interno de fallback para desarrollo seguro)
+- `CENTRALITA_AUTH_TOKEN` (único token aceptado)
+- (el secreto de LiveKit ya NO es un token de API)
+- Ningún otro: no existe token de fallback. Sin `CENTRALITA_AUTH_TOKEN` (>= 24 caracteres) los endpoints protegidos responden 503.
 
 ---
 
@@ -90,7 +90,7 @@ Genera un token JWT de LiveKit firmado criptográficamente para unirse a la sala
 
 ### 3. `WS /ws/monitor`
 Canal bidireccional WebSocket para el panel de monitorización del cliente.
-- **Autenticación**: Parámetro query `?token=<TOKEN_VALIDO>`. Si el token no es válido, la conexión se cierra con código `4001 Unauthorized`.
+- **Autenticación**: primer mensaje `{"action":"auth","token":"<TOKEN>"}` en < 5 s (el token NO va en la URL). Token inválido → cierre `4001`; origen no permitido → `4003`.
 - **Mensaje inicial**:
 ```json
 {
@@ -140,7 +140,7 @@ Recibe eventos operativos emitidos por el agente de voz durante o al finalizar u
 
 ### 5. `POST /api/docuseal/webhook`
 Recibe notificaciones de estado de los contratos enviados para firma digital.
-- **Autenticación**: Abierta para el servicio webhook de DocuSeal (con verificación de payload).
+- **Autenticación**: cabecera secreta `X-Docuseal-Secret` (= `DOCUSEAL_WEBHOOK_SECRET`, configurada en DocuSeal). Sin secreto configurado → 503.
 - **Cuerpo del Mensaje (Ejemplo)**:
 ```json
 {
@@ -161,6 +161,8 @@ Recibe notificaciones de estado de los contratos enviados para firma digital.
 ```
 
 ---
+
+> **Desde la auditoría 2026-10-01**: `GET /api/calls`, `GET /api/leads`, `GET /api/status/details`, `GET /api/system/internal`, `GET /api/appointments`, `POST /api/leads/{id}/stage` y `POST /api/test-webhook` requieren `Authorization: Bearer <CENTRALITA_AUTH_TOKEN>`. `POST /api/client-identify` es público con consentimiento RGPD obligatorio y rate-limit (5/10 min/IP). `POST /api/public/demo-token` solo existe con `PUBLIC_DEMO_ENABLED=true`. `/api/leads` declara `source` (`google_sheets_live` | `memory_session`) y `degraded`.
 
 ### 6. `GET /api/calls`
 Devuelve el historial en memoria de todas las llamadas registradas.

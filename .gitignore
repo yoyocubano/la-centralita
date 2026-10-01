@@ -23,3 +23,9 @@ data/
 # Paquete de diseño crudo (los assets procesados residen en panel/)
 design-package/
 
+
+# Caché local de Firebase CLI
+.firebase/
+
+# Vercel CLI
+.vercel/

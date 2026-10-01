@@ -56,7 +56,7 @@ El cliente o prospecto llama → el agente conversa de forma natural y ágil 24/
 | STT | Deepgram Nova-3 | 🟡 cuenta en creación (bloqueo por reCAPTCHA) |
 | LLM | DeepSeek (cliente OpenAI-compatible) | 🟡 cuenta en creación (esperando credencial/código) |
 | TTS | Piper (local, open source, $0) | ✅ RESUELTO (2026-10-01) adapter verificado en livekit-agents 1.8.3 |
-| Post-llamada | n8n webhook | ✅ `https://weluxdigitalservices.app.n8n.cloud/webhook/centralita-test` (HTTP 200 verificado) |
+| Post-llamada | n8n webhook | ✅ ``<N8N_WEBHOOK_URL>` (privado, solo en `.env`; ROTAR: la ruta anterior quedó expuesta en el historial git)` (HTTP 200 verificado) |
 | Canal de prueba | Página web GitHub Pages (sin número) | ✅ https://yoyocubano.github.io/la-centralita/ |
 
 ## 4. Tablero Fase 1 — criterio de salida
@@ -194,3 +194,10 @@ Claude: antes de actuar, lee este HANDSHAKE completo.
 6. La REGLA DE SEGURIDAD sobre secretos (arriba) aplica sin excepciones:
    ningún secreto se escribe en este archivo ni en ningún commit.
 
+
+### 2026-10-01 — Claude (auditoría + corrección, orden directa de Yusmel)
+- Rol ampliado por el dueño: auditoría con permiso de escritura en `feature/centralita-voz` (sin merge a `main`).
+- **Conciliación**: la bitácora decía "HARDENED, 0 vulnerabilidades"; el código en `32fd8b4` estaba **EXPOSED**: H-002/H-003/H-004 NO cerrados (token `centralita-secure-token-2026` publicado en el frontend y aceptado por el backend), H-001/H-005/H-006 parciales, H-007 cerrado. +17 hallazgos nuevos (1 crítico: `/api/leads` y `/api/calls` con PII sin auth). Detalle: `docs/SECURITY_AUDIT.md`.
+- ✅ RESUELTO (2026-10-01) en código: commits `469ba4b` (seguridad backend), `80bc25a` (TTS intercambiable, CosyVoice 3 por defecto), `ad2b114` (CSS completo: 161 clases sin estilo → 0; modo vivo/demo explícito), `47daa2b` (97 tests de comportamiento), n8n sin PII.
+- Verificado: `la-centralita.web.app` = 404 Site Not Found (nunca desplegado a live); el preview sirve el panel sin backend ⇒ MODO DEMO por construcción.
+- ⏳ Pendiente del dueño: rotar webhook n8n, configurar secretos/SMTP, `scripts/repair_sheet_phones.py --apply`, desplegar backend y fijar `panel/config.js`, servidor CosyVoice.

@@ -30,7 +30,7 @@ En un entorno comercial real con recepción de llamadas telefónicas y WhatsApp:
 ## 3. Plan de Acción y Migración Recomendado (Antes del 14/10/2026)
 
 ### Paso 1: Respaldo del Workflow Actual (Desde n8n Cloud)
-1. Acceder al dashboard de n8n Cloud actual (`weluxdigitalservices.app.n8n.cloud`).
+1. Acceder al dashboard de n8n Cloud actual (`[instancia].app.n8n.cloud`).
 2. Abrir el flujo de *La Centralita — Post-Call Processing*.
 3. Hacer clic en los tres puntos superiores `...` y seleccionar **Download** (exporta el archivo `la_centralita_workflow.json`).
 

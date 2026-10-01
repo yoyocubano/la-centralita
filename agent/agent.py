@@ -1,19 +1,27 @@
-"""La Centralita — agente de voz WELUX (Fase 1, prueba $0).
+"""La Centralita — agente de voz WELUX (Fase 1).
 
-Pipeline de alta fluidez:
-  - Deepgram Nova-3 (STT streaming de ultra-baja latencia con formateo inteligente)
-  - DeepSeek Chat (LLM con temperatura 0.5, generación preemptiva y respuestas orales concisas)
-  - Piper TTS (Sintetizador neural local in-process < 50ms, 0 €)
-  - Silero VAD (Detección de voz afinada para turn-taking ágil e interrupciones naturales)
-Al colgar: extrae el lead estructurado en JSON y lo notifica al webhook de n8n.
+Pipeline:
+  - Deepgram Nova-3 (STT streaming; keyterms de dominio; opt-out del programa de
+    mejora de modelos de Deepgram -> el audio no se usa para entrenar, RGPD)
+  - DeepSeek Chat (LLM, temperatura 0.5, respuestas orales concisas)
+  - TTS intercambiable por configuración (agent/tts_factory.py):
+    CosyVoice 3 auto-hospedado por defecto, Piper como respaldo, ElevenLabs como upgrade
+  - Silero VAD (turn-taking ágil e interrupciones naturales)
+
+Durante la llamada emite eventos al backend (/api/call-event) para que el panel
+muestre la transcripción en vivo. Al colgar ejecuta el pipeline post-llamada
+(lead -> Sheets, email, DocuSeal, evento anonimizado a n8n).
 """
 
 import asyncio
-import hashlib
 import json
 import logging
 import os
+import time
 import urllib.request
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -22,50 +30,67 @@ from livekit.plugins import deepgram, openai, silero
 
 try:
     from prompts import SYSTEM_PROMPT
-    from piper_tts import PiperTTS
-    from lead_extract import extract_lead
-    from post_call import PostCallProcessor, redact_pii
+    from post_call import PostCallProcessor, format_duration, mask_phone
+    from tts_factory import build_tts
 except ImportError:
     from .prompts import SYSTEM_PROMPT
-    from .piper_tts import PiperTTS
-    from .lead_extract import extract_lead
-    from .post_call import PostCallProcessor, redact_pii
+    from .post_call import PostCallProcessor, format_duration, mask_phone
+    from .tts_factory import build_tts
 
 load_dotenv()
 logger = logging.getLogger("centralita")
 logging.basicConfig(level=logging.INFO)
 
+APPOINTMENT_REQUESTS_FILE = Path(__file__).resolve().parent.parent / "data" / "appointment_requests.jsonl"
+
 
 # ==============================================================================
-# Herramientas de Agendamiento Autónomo (Arquitectura Dograh MCP)
+# Herramientas de agenda (tool-calling). Registran SOLICITUDES, no reservas firmes:
+# no existe aún integración con un calendario real, así que el agente nunca
+# promete una cita confirmada (ver prompts.py §6).
 # ==============================================================================
 
-@llm.function_tool(description="Verifica disponibilidad de fechas y horarios para reuniones técnicas en WELUX Events")
+@llm.function_tool(description="Consulta si se puede solicitar una reunión técnica en una fecha. No confirma disponibilidad real.")
 async def check_calendar_availability(date: str) -> str:
-    """Verifica si hay huecos disponibles en el calendario de eventos."""
-    logger.info("[Dograh Tool] Verificando disponibilidad para fecha: %s", date)
-    return f"Para la fecha {date}, hay disponibilidad técnica a las 11:00 y a las 16:30."
+    """Informa de las franjas en las que el equipo suele atender reuniones."""
+    logger.info("[Agenda] Consulta de disponibilidad (fecha solicitada registrada)")
+    return (
+        f"Para el {date} el equipo atiende reuniones normalmente entre las 9:00 y las 18:00. "
+        "Puedo registrar la franja que prefiera el cliente y el equipo la confirmará por teléfono o email."
+    )
 
 
-@llm.function_tool(description="Agenda formalmente una reunión técnica o llamada de asesoría con el cliente")
+@llm.function_tool(description="Registra una solicitud de reunión técnica para que el equipo la confirme")
 async def book_technical_meeting(
     client_name: str,
     phone: str,
     event_type: str,
     requested_date: str,
-    requested_time: str = "16:30",
+    requested_time: str = "",
 ) -> str:
-    """Registra y confirma la cita en la agenda de WELUX Events."""
-    logger.info(
-        "[Dograh Tool] Agendando cita técnica: %s (%s) para %s a las %s",
-        client_name,
-        phone,
-        requested_date,
-        requested_time,
-    )
+    """Guarda la solicitud de cita en data/appointment_requests.jsonl (pendiente de confirmación)."""
+    request = {
+        "id": uuid.uuid4().hex[:12],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "client_name": client_name,
+        "phone": phone,
+        "event_type": event_type,
+        "requested_date": requested_date,
+        "requested_time": requested_time,
+        "status": "PENDIENTE_CONFIRMACION",
+    }
+
+    def _append() -> None:
+        APPOINTMENT_REQUESTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(APPOINTMENT_REQUESTS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(request, ensure_ascii=False) + "\n")
+
+    await asyncio.to_thread(_append)
+    logger.info("[Agenda] Solicitud %s registrada (tel %s)", request["id"], mask_phone(phone))
+    when = f"el {requested_date}" + (f" a las {requested_time}" if requested_time else "")
     return (
-        f"Reunión técnica confirmada con éxito para {client_name} el {requested_date} a las {requested_time}. "
-        f"Se ha reservado el slot y notificado al director de producción de WELUX."
+        f"Solicitud de reunión registrada para {client_name} {when}. "
+        "Queda pendiente de confirmación: el equipo de WELUX contactará al cliente para confirmarla."
     )
 
 
@@ -74,90 +99,91 @@ class CentralitaAgent(Agent):
         super().__init__(instructions=SYSTEM_PROMPT)
 
     async def on_enter(self) -> None:
-        # Saludo inicial cálido, natural y humano
         await self.session.generate_reply(
             instructions=(
-                "Saluda con entusiasmo y elegancia como Sofía de WELUX Events en Luxemburgo. "
-                "Menciona con naturalidad que la llamada se graba para calidad del servicio "
-                "y pregunta amablemente en qué puedes asesorarles hoy."
+                "Saluda con calidez y elegancia como Sofía de WELUX en Luxemburgo. "
+                "Informa con naturalidad de que la llamada se graba y transcribe para calidad del servicio "
+                "y pregunta amablemente en qué puedes asesorarle hoy."
             )
         )
 
 
-async def post_to_n8n(payload: dict) -> None:
-    """Envía transcripción + lead al webhook de n8n al colgar."""
-    url = os.getenv("N8N_WEBHOOK_URL")
-    if not url:
-        logger.warning("N8N_WEBHOOK_URL no configurada; salto el envío.")
-        return
+class MonitorEmitter:
+    """Envía eventos de la llamada al backend (/api/call-event) para el panel en vivo.
 
-    def _do() -> int:
+    Best-effort: si el backend no está configurado o no responde, la llamada sigue
+    sin interrupciones (solo se registra un aviso).
+    """
+
+    def __init__(self, call_id: str, room: str) -> None:
+        self.base_url = os.getenv("CENTRALITA_API_URL", "").rstrip("/")
+        self.token = os.getenv("CENTRALITA_AUTH_TOKEN", "")
+        self.call_id = call_id
+        self.room = room
+        self.enabled = bool(self.base_url and self.token)
+        if not self.enabled:
+            logger.warning("CENTRALITA_API_URL / CENTRALITA_AUTH_TOKEN no configurados: panel en vivo desactivado.")
+
+    def _post(self, payload: dict) -> None:
         req = urllib.request.Request(
-            url,
+            f"{self.base_url}/api/call-event",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return resp.status
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            resp.read()
 
-    try:
-        status = await asyncio.to_thread(_do)
-        logger.info("n8n respondió HTTP %s", status)
-    except Exception as e:
-        logger.error("Error al enviar evento a n8n: %s", e)
-
-
-def transcript_to_text(session: AgentSession) -> str:
-    """Serializa el historial de la sesión a texto legible."""
-    lines: list[str] = []
-    for item in session.history.items:
-        role = getattr(item, "role", "?")
-        text = getattr(item, "text_content", None)
-        if text is None:
-            content = getattr(item, "content", "")
-            if isinstance(content, list):
-                text = " ".join(
-                    getattr(part, "text", str(part)) for part in content if part
-                )
-            else:
-                text = str(content)
-        if text and text.strip():
-            role_label = "Sofía (WELUX)" if role == "assistant" else "Cliente"
-            lines.append(f"{role_label}: {text.strip()}")
-    return "\n".join(lines)
+    async def emit(self, event_type: str, **fields) -> None:
+        if not self.enabled:
+            return
+        payload = {
+            "type": event_type,
+            "call_id": self.call_id,
+            "room": self.room,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **{k: v for k, v in fields.items() if v is not None},
+        }
+        try:
+            await asyncio.to_thread(self._post, payload)
+        except Exception as exc:
+            logger.warning("No se pudo emitir '%s' al panel (%s)", event_type, type(exc).__name__)
 
 
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     logger.info("Agente conectado a la sala '%s', esperando participante...", ctx.room.name)
 
-    # 1. VAD afinado: turn-taking ágil, sin pausas vacías incómodas
+    call_id = f"call-{uuid.uuid4().hex[:12]}"
+    started_at = time.monotonic()
+    transcript_history: list[dict] = []
+    monitor = MonitorEmitter(call_id=call_id, room=ctx.room.name)
+    background: set[asyncio.Task] = set()
+
+    def spawn(coro) -> None:
+        task = asyncio.create_task(coro)
+        background.add(task)
+        task.add_done_callback(background.discard)
+
     vad_plugin = silero.VAD.load(
-        min_speech_duration=0.08,     # Detecta rápidamente cuando el cliente empieza a hablar
-        min_silence_duration=0.45,    # Reducido de 0.55s para responder sin vacíos extraños
-        prefix_padding_duration=0.25, # Preserva los primeros fonemas como "Hola" o "Sí"
+        min_speech_duration=0.08,
+        min_silence_duration=0.45,
+        prefix_padding_duration=0.25,
         activation_threshold=0.5,
     )
 
-    # 2. STT streaming Deepgram Nova-3: alta precisión y puntuación automática
     stt_plugin = deepgram.STT(
         model=os.getenv("DEEPGRAM_MODEL", "nova-3"),
         language=os.getenv("DEEPGRAM_LANGUAGE", "es"),
         smart_format=True,
         punctuate=True,
         interim_results=True,
-        keyterm=[
-            "WELUX",
-            "Luxemburgo",
-            "Kirchberg",
-            "Strassen",
-            "Cloche d'Or",
-        ],
+        # Nova-3 usa keyterm prompting (el parámetro `keywords` es solo para Nova-2).
+        keyterms=["WELUX", "Luxemburgo", "Kirchberg", "Strassen", "Cloche d'Or"],
         endpointing_ms=250,
+        mip_opt_out=True,
     )
 
-    # 3. LLM DeepSeek con temperatura conversacional y generación concisa
     llm_plugin = openai.LLM(
         model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
         base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
@@ -166,18 +192,10 @@ async def entrypoint(ctx: JobContext) -> None:
         max_completion_tokens=150,
     )
 
-    # 4. Piper TTS local o HTTP
-    tts_plugin = PiperTTS(
-        base_url=os.getenv("PIPER_HTTP_URL", "http://localhost:10200"),
-        voice=os.getenv("PIPER_VOICE", "es_ES-sharvard-medium"),
-        model_path=os.getenv("PIPER_MODEL_PATH", "models/piper/es_ES-sharvard-medium.onnx"),
-    )
-
-    # 5. Sesión con soporte fluido para interrupciones (barge-in) y generación preemptiva
     session = AgentSession(
         stt=stt_plugin,
         llm=llm_plugin,
-        tts=tts_plugin,
+        tts=build_tts(),
         vad=vad_plugin,
         tools=[check_calendar_availability, book_technical_meeting],
         allow_interruptions=True,
@@ -188,21 +206,42 @@ async def entrypoint(ctx: JobContext) -> None:
         max_endpointing_delay=0.5,
     )
 
-    agent = CentralitaAgent()
-    await session.start(room=ctx.room, agent=agent)
+    @session.on("conversation_item_added")
+    def _on_item(ev) -> None:
+        item = ev.item
+        role = getattr(item, "role", None)
+        text = getattr(item, "text_content", None)
+        if role not in ("user", "assistant") or not text or not text.strip():
+            return
+        transcript_history.append({"role": role, "text": text.strip()})
+        spawn(monitor.emit(
+            "transcript_delta",
+            role=role,
+            text=text.strip(),
+            duration=format_duration(time.monotonic() - started_at),
+        ))
+
+    await session.start(room=ctx.room, agent=CentralitaAgent())
+    spawn(monitor.emit("call_started", status="active", agent="Sofía (IA WELUX)"))
 
     async def on_shutdown() -> None:
-        logger.info("Llamada terminada: ejecutando pipeline post-llamada (Sheets, Email, n8n, DocuSeal)...")
-        transcript = transcript_to_text(session)
-        processor = PostCallProcessor()
-        transcript_history = [
-            {"role": "user", "text": transcript}
-        ]
-        await processor.process_call_ended(
+        duration_seconds = time.monotonic() - started_at
+        logger.info("Llamada %s terminada (%s): ejecutando pipeline post-llamada.", call_id, format_duration(duration_seconds))
+        if background:
+            await asyncio.gather(*list(background), return_exceptions=True)
+
+        result = await PostCallProcessor().process_call_ended(
             room_name=ctx.room.name,
-            participant_id="live-client",
-            duration_seconds=45.0,
-            transcript_history=transcript_history,
+            participant_id=call_id,
+            duration_seconds=duration_seconds,
+            transcript_history=list(transcript_history),
+        )
+        await monitor.emit(
+            "call_ended",
+            status="ended",
+            duration=format_duration(duration_seconds),
+            transcript=result.get("full_transcript"),
+            lead=result.get("lead"),
         )
 
     ctx.add_shutdown_callback(on_shutdown)
