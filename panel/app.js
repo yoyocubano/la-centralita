@@ -23,8 +23,8 @@ class CentralitaDataProvider {
 class MockCentralitaProvider extends CentralitaDataProvider {
   constructor() {
     super();
-    this.storageKeyLeads = "welux_centralita_leads_v2";
-    this.storageKeyCalls = "welux_centralita_calls_v2";
+    this.storageKeyLeads = "welux_centralita_leads_v4";
+    this.storageKeyCalls = "welux_centralita_calls_v4";
     this.initDefaultData();
   }
 
@@ -34,49 +34,49 @@ class MockCentralitaProvider extends CentralitaDataProvider {
         {
           id: "call-101",
           date: "Hoy, 13:42",
-          client: "Jean-Luc Weber",
+          client: "Pierre Meyers",
           phone: "+352 691 452 890",
           duration: "02:18",
           operator: "Sofía (IA)",
-          reason: "Gala corporativa fin de año",
+          reason: "Alquiler Fotoespejo (Photobooth)",
           hasLead: true,
-          transcript: `Sofía: ¡Hola! Gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?
-Jean-Luc Weber: Hola Sofía, buenas tardes. Me llamo Jean-Luc Weber, de una consultora aquí en Kirchberg. Queremos organizar nuestra gala de fin de año el 18 de noviembre para unas 150 personas.
-Sofía: ¡Qué maravilla de evento, Jean-Luc! Por supuesto, contamos con sistemas completos de iluminación arquitectónica, audio profesional line-array y servicio de DJ para galas corporativas. ¿Ya tienen el salón reservado?
-Jean-Luc Weber: Sí, en el salón principal de Kirchberg. Necesitaremos también un par de micrófonos inalámbricos para los discursos iniciales. Mi móvil de contacto es el +352 691 452 890.
-Sofía: ¡Excelente elección! Tomo nota de los micrófonos y el recinto. Nuestro equipo de producción preparará la cotización personalizada hoy mismo y te la enviaremos de inmediato. ¿Hay algún otro detalle técnico?
-Jean-Luc Weber: No, con eso estamos perfectos por ahora. Quedo a la espera de su propuesta. ¡Muchas gracias!
-Sofía: Un auténtico placer, Jean-Luc. ¡Que tengas un excelente día en Luxemburgo!`
+          transcript: `Sofía: ¡Hola! Gracias por comunicarte con nuestra centralita de servicios empresariales. Soy Sofía, ¿en qué podemos asesorarte hoy?
+Pierre Meyers: Hola Sofía, buenas tardes. Me llamo Pierre Meyers, de una consultora en Kirchberg. Queremos alquilar un fotoespejo interactivo photobooth para nuestra jornada de empresa el 14 de noviembre.
+Sofía: ¡Qué excelente iniciativa, Pierre! El fotoespejo interactivo es sensacional para dinamizar eventos corporativos, con impresiones instantáneas personalizadas con el logo de tu empresa. ¿Aproximadamente cuántos asistentes calculan?
+Pierre Meyers: Seremos unas 120 personas, en nuestras oficinas en Kirchberg. Mi número es el +352 691 452 890.
+Sofía: ¡Excelente elección! Tomo nota de todo, Pierre. Nuestro asesor de alquileres preparará la propuesta formal hoy mismo con las opciones de personalización. ¿Deseas agregar algún otro juego o inflable?
+Pierre Meyers: No, con el fotoespejo estamos perfectos. Quedo a la espera de su propuesta. ¡Muchas gracias!
+Sofía: Un auténtico placer, Pierre. ¡Que tengas un excelente día en Luxemburgo!`
         },
         {
           id: "call-102",
           date: "Hoy, 12:15",
-          client: "Julien Schmit",
+          client: "Camille Wagner",
           phone: "+352 621 445 566",
           duration: "01:45",
           operator: "Sofía (IA)",
-          reason: "Fiesta privada de cumpleaños",
+          reason: "Asesoría de Negocios y Procesos",
           hasLead: true,
-          transcript: `Sofía: ¡Hola! Gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué podemos ayudarte?
-Julien Schmit: Hola, busco cotizar sonido e iluminación para un cumpleaños el 24 de octubre en Strassen. Seremos unas 80 personas.
-Sofía: ¡Por supuesto Julien! Contamos con paquetes ideales para ese tamaño con cabina DJ y luces dinámicas. ¿A qué número podemos enviarte la cotización?
-Julien Schmit: Al +352 621 445 566.
-Sofía: Perfecto Julien, te contactamos en breve con el desglose. ¡Buen día!`
+          transcript: `Sofía: ¡Hola! Te atiende Sofía de la centralita empresarial. ¿Cómo podemos colaborar con tu negocio hoy?
+Camille Wagner: Hola, hablo de Wagner Logistics. Buscamos asesoría de negocios para reestructurar nuestros flujos de ventas y automatizar la atención comercial telefónica 24/7.
+Sofía: ¡Comprendo perfectamente, Camille! Ayudamos a pymes en Luxemburgo a digitalizar y optimizar sus procesos comerciales. ¿Te vendría bien agendar una sesión de diagnóstico de 30 minutos?
+Camille Wagner: Sí, estupendo. Al teléfono +352 621 445 566.
+Sofía: Perfecto Camille, queda coordinada la llamada con nuestro consultor estratégico. ¡Buen día!`
         },
         {
           id: "call-103",
           date: "Hoy, 11:05",
-          client: "Sophie Laurent",
+          client: "Alexandre Dupont",
           phone: "+352 661 889 012",
           duration: "03:10",
           operator: "Sofía (IA)",
-          reason: "Boda de lujo en Septfontaines",
+          reason: "Web Corporativa, Chatbot & CRM",
           hasLead: true,
-          transcript: `Sofía: ¡Hola! Gracias por llamar a WELUX Events. Soy Sofía, ¿cómo puedo asistirte?
-Sophie Laurent: Hola Sofía, estamos planeando nuestra boda para mayo de 2027 en el Château de Septfontaines. Buscamos producción de luces de hadas, sonido para la ceremonia y fiesta.
-Sofía: ¡Enhorabuena Sophie, qué gran noticia! Es un recinto maravilloso donde trabajamos frecuentemente. Agendemos una llamada técnica con nuestro director de eventos. ¿Te vendría bien el 18 de octubre a las 16:30?
-Sophie Laurent: Sí, perfecto. Mi número es +352 661 889 012.
-Sofía: Queda agendado en el calendario de WELUX. Te esperamos pronto.`
+          transcript: `Sofía: ¡Hola! Gracias por llamar a nuestra división de servicios digitales y B2B. Soy Sofía, ¿en qué te puedo apoyar?
+Alexandre Dupont: Hola Sofía, necesitamos modernizar la página web de nuestro despacho legal en Ciudad de Luxemburgo, añadir un chatbot con IA para clientes y conectar todo al CRM Twenty.
+Sofía: ¡Excelente proyecto, Alexandre! Desarrollamos portales web optimizados y chatbots autónomos que capturan clientes y los registran en Twenty. ¿Para qué fecha les gustaría tenerlo operativo?
+Alexandre Dupont: Para antes de diciembre. Mi móvil directo es el +352 661 889 012.
+Sofía: Tomo nota, Alexandre. Agendamos una llamada de especificación técnica hoy mismo. Te contactamos en breve.`
         },
         {
           id: "call-104",
@@ -85,12 +85,13 @@ Sofía: Queda agendado en el calendario de WELUX. Te esperamos pronto.`
           phone: "+352 691 334 221",
           duration: "02:05",
           operator: "Sofía (IA)",
-          reason: "Lanzamiento de producto automotriz",
+          reason: "Alquiler Inflables (Billar & Minigolf)",
           hasLead: true,
-          transcript: `Sofía: WELUX Events, le atiende Sofía. ¿En qué le puedo colaborar?
-Marc Becker: Buenas, hablo de un concesionario en Bertrange. Necesitamos iluminación focalizada y pantalla LED para presentar un nuevo modelo el 22 de octubre.
-Sofía: Excelente Marc, tenemos módulos LED de alta resolución y focos de recorte para vehículos. Tomo nota para agendar reunión presencial el 22 a las 11:00.
-Marc Becker: De acuerdo, al teléfono +352 691 334 221.`
+          transcript: `Sofía: Centralita de servicios y alquileres, le atiende Sofía. ¿En qué le puedo colaborar?
+Marc Becker: Buenas, hablo de un concesionario en Bertrange. Queremos alquilar inflables interactivos de minigolf y billar para una jornada de puertas abiertas el 22 de octubre.
+Sofía: ¡Fantástica idea Marc! Los inflables de minigolf y billar gigante son un éxito para dinamizar eventos de empresa. ¿Sería para entrega y montaje completo en Bertrange?
+Marc Becker: Sí, exactamente. Mi contacto es el +352 691 334 221.
+Sofía: Perfecto Marc, bloqueamos la fecha provisional y te enviamos el presupuesto con transporte y montaje incluidos.`
         }
       ];
       localStorage.setItem(this.storageKeyCalls, JSON.stringify(defaultCalls));
@@ -100,47 +101,58 @@ Marc Becker: De acuerdo, al teléfono +352 691 334 221.`
       const defaultLeads = [
         {
           id: "lead-1",
-          name: "Jean-Luc Weber",
+          name: "Pierre Meyers",
           phone: "+352 691 452 890",
           company: "Consultora Kirchberg",
-          interest: "Gala corporativa (150 pax)",
-          eventDate: "18 Nov 2026",
+          interest: "Alquiler Fotoespejo (Photobooth)",
+          eventDate: "14 Nov 2026",
           stage: "nuevo",
-          summary: "Requiere sonido line array, iluminación arquitectónica y micrófonos para discursos en Kirchberg.",
+          summary: "Alquiler de fotoespejo interactivo para jornada de empresa (120 personas) en Kirchberg. Impresiones personalizadas con logo.",
           timestamp: "Hoy, 13:42"
         },
         {
           id: "lead-2",
-          name: "Julien Schmit",
+          name: "Camille Wagner",
           phone: "+352 621 445 566",
-          company: "Particular",
-          interest: "Cumpleaños privado (80 pax)",
-          eventDate: "24 Oct 2026",
+          company: "Wagner Logistics SARL",
+          interest: "Asesoría de Negocios y Procesos",
+          eventDate: "28 Oct 2026",
           stage: "contactado",
-          summary: "Local en Strassen. Presupuesto estimado para DJ y luces dinámicas.",
+          summary: "Consultoría estratégica para optimización de flujos comerciales y atención telefónica automatizada 24/7.",
           timestamp: "Hoy, 12:15"
         },
         {
           id: "lead-3",
-          name: "Sophie Laurent",
+          name: "Alexandre Dupont",
           phone: "+352 661 889 012",
-          company: "Particular",
-          interest: "Boda Château de Septfontaines",
-          eventDate: "15 May 2027",
+          company: "Dupont & Partners Law",
+          interest: "Web Corporativa, Chatbot & CRM",
+          eventDate: "15 Nov 2026",
           stage: "agendado",
-          summary: "Reunión técnica agendada para el 18 de octubre a las 16:30. Luces de hadas y audio ceremonia.",
+          summary: "Desarrollo web corporativo, chatbot con IA conversacional y despliegue del CRM Twenty para despacho en Luxemburgo.",
           timestamp: "Hoy, 11:05"
         },
         {
           id: "lead-4",
           name: "Marc Becker",
           phone: "+352 691 334 221",
-          company: "Automotriz Bertrange",
-          interest: "Lanzamiento de vehículo",
+          company: "Becker Auto Bertrange",
+          interest: "Alquiler Inflables (Billar & Minigolf)",
           eventDate: "22 Oct 2026",
           stage: "agendado",
-          summary: "Pantalla LED y focos de recorte para presentación de modelo.",
+          summary: "Reserva de inflables interactivos de minigolf y billar para jornada de puertas abiertas en Bertrange.",
           timestamp: "Hoy, 10:20"
+        },
+        {
+          id: "lead-5",
+          name: "Sophie Laurent",
+          phone: "+352 661 772 334",
+          company: "Particular",
+          interest: "Gala / Boda Château Septfontaines",
+          eventDate: "15 May 2027",
+          stage: "ganado",
+          summary: "Producción audiovisual y luces arquitectónicas para evento privado de gala. Contratado con DocuSeal.",
+          timestamp: "Ayer, 16:30"
         }
       ];
       localStorage.setItem(this.storageKeyLeads, JSON.stringify(defaultLeads));
@@ -605,21 +617,30 @@ function generateSofiaResponse(userText) {
   let sofiaReply = "";
   let extracted = {};
 
-  if (lower.includes("gala") || lower.includes("empresa") || lower.includes("corporativ")) {
+  if (lower.includes("fotoespejo") || lower.includes("photobooth") || lower.includes("espejo")) {
+    sofiaReply = "¡El fotoespejo interactivo es sensacional para activaciones de marca y eventos! Incluye impresiones ilimitadas al instante, diseño personalizado con el logo de tu empresa y atrezo. ¿Para qué fecha lo necesitas y cuántos asistentes calculan?";
+    extracted = { interest: "Alquiler Fotoespejo (Photobooth)", reqs: ["Fotoespejo Interactivo", "Impresión Instantánea", "Plantilla con Logo"], guests: "120 aprox." };
+  } else if (lower.includes("asesor") || lower.includes("consultor") || lower.includes("proceso") || lower.includes("negocio")) {
+    sofiaReply = "¡Excelente iniciativa! Nuestro equipo de consultoría ayuda a empresas en Luxemburgo a optimizar procesos comerciales y automatizar la atención al cliente 24/7. ¿Te vendría bien agendar una sesión de diagnóstico de 30 minutos?";
+    extracted = { interest: "Asesoría de Negocios y Procesos", reqs: ["Diagnóstico Operativo", "Automatización Comercial", "Consultoría Estratégica"] };
+  } else if (lower.includes("web") || lower.includes("crm") || lower.includes("chatbot") || lower.includes("newsletter") || lower.includes("mailing")) {
+    sofiaReply = "¡Magnífico proyecto digital! Diseñamos sitios web profesionales, chatbots conversacionales con IA y desplegamos el CRM Twenty para centralizar tus ventas. ¿Para qué fecha les gustaría tenerlo operativo?";
+    extracted = { interest: "Servicios B2B (Web, Chatbot & CRM)", reqs: ["Desarrollo Web", "Chatbot IA", "Configuración CRM Twenty"] };
+  } else if (lower.includes("minigolf") || lower.includes("billar") || lower.includes("inflable")) {
+    sofiaReply = "¡Fantástica idea para dinamizar la jornada! Nuestros juegos inflables interactivos como el minigolf o billar gigante son un éxito en empresas. ¿Sería con entrega y montaje completo en tu sede?";
+    extracted = { interest: "Alquiler Inflables (Minigolf & Billar)", reqs: ["Minigolf Inflable", "Billar Gigante", "Montaje y Logística"] };
+  } else if (lower.includes("gala") || lower.includes("empresa") || lower.includes("corporativ")) {
     sofiaReply = "¡Por supuesto! Para galas corporativas disponemos de sonido line-array de alta fidelidad, iluminación perimetral y micrófonos para directivos. ¿Para qué fecha y qué salón lo tienen planificado?";
     extracted = { interest: "Gala corporativa", guests: "150 aprox.", reqs: ["Sonido Line Array", "Iluminación Arquitectónica", "Micrófonos Inalámbricos"] };
   } else if (lower.includes("boda") || lower.includes("casamiento") || lower.includes("septfontaines")) {
     sofiaReply = "¡Enhorabuena por la boda! En recintos como Septfontaines instalamos microfonía para la ceremonia, iluminación cálida de hadas y cabina de DJ. ¿Tienes fecha aproximada o ya reservaste el château?";
     extracted = { interest: "Boda de lujo", reqs: ["Luces de Hadas", "Audio Ceremonia", "DJ Set"], date: "Primavera / Verano 2027" };
-  } else if (lower.includes("cumpleaños") || lower.includes("fiesta") || lower.includes("privad") || lower.includes("strassen")) {
-    sofiaReply = "¡Qué gran plan de fiesta! Tenemos paquetes completos que incluyen DJ, mesa de mezclas y juegos de luces dinámicas para salones privados. ¿Aproximadamente cuántos invitados asistirán?";
-    extracted = { interest: "Fiesta privada", reqs: ["DJ Set", "Luces Dinámicas", "Altavoces Activos"] };
   } else if (lower.includes("precio") || lower.includes("cuanto") || lower.includes("tarifa") || lower.includes("costo") || lower.includes("cotiz")) {
-    sofiaReply = "Con mucho gusto te informo. Como cada montaje es personalizado según el espacio, prepararemos una propuesta detallada en menos de 24 horas. ¿Me podrías indicar un número de teléfono de contacto?";
+    sofiaReply = "Con mucho gusto te informo. Como cada solución se adapta a la medida de tu empresa o evento, prepararemos una propuesta detallada en menos de 24 horas. ¿Me podrías indicar un número de teléfono de contacto?";
     extracted = { interest: "Cotización formal requerida" };
   } else {
-    sofiaReply = "¡Entendido perfectamente! Tomo nota de los detalles para que nuestro director de producción de WELUX Events te contacte hoy mismo con la propuesta. ¿Hay algún requerimiento técnico adicional?";
-    extracted = { interest: "Consulta general de eventos" };
+    sofiaReply = "¡Entendido perfectamente! Tomo nota de los detalles para que nuestro asesor asignado se comunique hoy mismo con la propuesta comercial. ¿Hay algún detalle específico adicional?";
+    extracted = { interest: "Consulta general de servicios B2B" };
   }
 
   // Actualizar lead en vivo
@@ -1175,16 +1196,29 @@ function openDocuSealModal(leadId) {
   if (!currentDocuSealLead) return;
 
   const amountsMap = {
-    "lead-1": "4.800,00 €",
-    "lead-2": "1.900,00 €",
-    "lead-3": "6.500,00 €",
-    "lead-4": "3.200,00 €",
-    "lead-5": "1.200,00 €",
-    "lead-6": "2.400,00 €"
+    "lead-1": "2.400,00 €",
+    "lead-2": "3.800,00 €",
+    "lead-3": "4.500,00 €",
+    "lead-4": "1.800,00 €",
+    "lead-5": "6.500,00 €"
   };
 
   const amount = amountsMap[currentDocuSealLead.id] || "2.500,00 €";
   const isSigned = currentDocuSealLead.stage === "ganado" || currentDocuSealLead.docusealSigned;
+
+  const titleEl = document.getElementById("docusealContractTitle");
+  if (titleEl) {
+    const interest = (currentDocuSealLead.interest || "").toLowerCase();
+    if (interest.includes("fotoespejo") || interest.includes("inflable")) {
+      titleEl.innerText = "WELUX Rentals S.à r.l. — Contrato de Alquiler de Fotoespejo e Inflables";
+    } else if (interest.includes("asesoría") || interest.includes("procesos")) {
+      titleEl.innerText = "WELUX Consulting S.à r.l. — Contrato de Asesoría de Negocios y Consultoría";
+    } else if (interest.includes("web") || interest.includes("crm")) {
+      titleEl.innerText = "WELUX Digital Services S.à r.l. — Contrato de Desarrollo Web, Chatbots & CRM";
+    } else {
+      titleEl.innerText = "WELUX Events S.à r.l. — Contrato de Producción Técnica para Eventos";
+    }
+  }
 
   document.getElementById("docusealContractId").innerText = `DOCUSEAL-WLX-2026-${currentDocuSealLead.id.replace('lead-', '094')}`;
   document.getElementById("docusealClientName").innerText = currentDocuSealLead.name;

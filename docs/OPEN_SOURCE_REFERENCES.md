@@ -15,7 +15,7 @@ Modelo de referencia y estándar de datos para el módulo **Bandeja de Leads & O
 ### Qué se reutilizó y adaptó
 1. **Modelo de Entidades Normalizado**:
    - **`Person` (Contacto)**: `firstName`, `lastName`, `phone` (formato E.164 con prefijo luxemburgués `+352`), `company`, `email`.
-   - **`Opportunity` (Oportunidad Comercial)**: `name`, `amount` estimado, `stage` (etapa del pipeline), `closeDate`, `technicalRequirements` (chips de sonido, iluminación, DJ, etc.).
+   - **`Opportunity` (Oportunidad Comercial)**: `name`, `amount` estimado, `stage` (etapa del pipeline), `closeDate`, `technicalRequirements` (fotoespejos/photobooths, inflables temáticos, consultoría de negocios, desarrollo web/CRM o producción audiovisual).
    - **`Activity.Call` (Registro de Interacción)**: transcripción estructurada, duración, identificador de sala LiveKit, archivo de audio y análisis de sentimiento.
 2. **Pipeline de Estados Comercial (Kanban & Tabla)**:
    - `NEW` (Lead recién extraído de la llamada).
@@ -82,10 +82,14 @@ Arquitectura de referencia para el **Pipeline de Voz con Tool-Calling (MCP)** y 
 Motor de **Firma Digital Electrónica de Contratos y Presupuestos** integrado con el flujo comercial post-llamada.
 
 ### Qué se reutilizó y adaptó
-1. **Flujo de Cierre y Firma eIDAS**:
-   - Cuando un lead calificado pasa a estado `agendado` o solicita presupuesto formal, el operador o el workflow automático de n8n puede generar un contrato de servicios técnicos de WELUX Events S.à r.l.
+1. **Flujo de Cierre y Firma eIDAS Multilínea**:
+   - Cuando un lead calificado pasa a estado `agendado` o solicita presupuesto formal, el operador o el workflow automático de n8n puede generar un contrato oficial según la línea requerida:
+     - *Alquileres:* Contrato de alquiler de fotoespejos (photobooths) o inflables temáticos.
+     - *Consultoría:* Contrato de asesoría de negocios y diagnóstico de procesos.
+     - *Servicios Digitales & B2B:* Contrato de desarrollo web, chatbots y configuración de CRM.
+     - *Eventos:* Contrato de producción técnica audiovisual de WELUX Events.
 2. **Componente Embebible & Notificaciones**:
-   - Modelo de formulario de firma digital (`docuseal-form`) con campos pre-poblados: nombre del cliente, empresa, teléfono luxemburgués (`+352`), fecha del evento, paquete técnico contratado e importe en euros.
+   - Modelo de formulario de firma digital (`docuseal-form`) con campos pre-poblados: nombre del cliente, empresa, teléfono luxemburgués (`+352`), fecha/plazo, servicio contratado e importe en euros.
    - Sello criptográfico auditable de firma electrónica con fecha, hora e IP.
    - Disparo de evento webhook a n8n (`document.completed`) que actualiza la oportunidad en el CRM a `GANADO / CONTRATADO`.
 

@@ -29,10 +29,16 @@ No hay excepciones a esta regla para ningún agente.
 
 ## 1. Qué es
 
-Centralita telefónica con agente de voz natural (WELUX). El cliente llama →
-el agente conversa como una recepcionista (reservas, cotizaciones, información) →
-la llamada se transcribe en tiempo real → al colgar se extrae el lead
-(nombre, teléfono, motivo, fecha, detalles) y se envía al dueño + n8n.
+Centralita telefónica con agente de voz natural impulsada por IA. Es un **PRODUCTO B2B** comercializable para negocios, empresas y pymes de servicios en Luxemburgo (empresas de alquileres, consultorías, agencias digitales, etc.).
+
+El cliente o prospecto llama → el agente conversa de forma natural y ágil 24/7 (reservas, cotizaciones, información de servicios, agenda) → la llamada se transcribe en tiempo real → al colgar se extrae el lead estructurado (nombre, empresa, teléfono, motivo, fecha/plazo, requerimientos) y se sincroniza con el CRM (Twenty) + webhook n8n.
+
+### 🏢 Las 4 Líneas de Negocio Respaldadas:
+1. **Asesoría de negocios:** consultoría estratégica y diagnóstico para empresas.
+2. **Servicios digitales:** automatización, integraciones de software y soporte técnico digital.
+3. **Alquileres para eventos y ocio:** fotoespejos (photobooths), inflables interactivos (billar inflable, minigolf) y reservas telefónicas automáticas.
+4. **Servicios B2B para empresas:** páginas web, chatbots con IA, campañas de mailing/newsletters y CRM.
+*(Las bodas y eventos exclusivos operan como una vertical de demostración, no la identidad única del negocio).*
 
 ## 2. Reglas de oro (no negociables)
 
@@ -102,6 +108,9 @@ la llamada se transcribe en tiempo real → al colgar se extrae el lead
   - **`docusealco/docuseal`** (Nota 24): Motor de firma digital electrónica para contratos de eventos de WELUX Events S.à r.l., integrado en el módulo de leads y pipeline comercial con sellado eIDAS y webhook n8n.
   - **`cloudflare/security-audit-skill`** (Nota 25 y Nota extra): Framework automatizado de auditoría en 6 fases. Creados `security/findings.json` y `security/coverage-ledger.json` (0 vulnerabilidades críticas, postura HARDENED, secreto cero en git, DTLS-SRTP y RGPD Luxemburgo). Incorporado monitor de seguridad en el panel.
 - ✅ **Suite de tests ampliada**: 9 tests pasando (`pytest tests/`).
+- 🎯 **Ajuste de Enfoque y Posicionamiento B2B**:
+  - Reescrita la documentación, prompts y páginas para posicionar La Centralita como producto comercial B2B para pymes y empresas en Luxemburgo.
+  - Articuladas las 4 líneas de negocio: 1) Asesoría de negocios (consultoría empresarial), 2) Servicios digitales, 3) Alquileres para eventos (fotoespejos/photobooths, inflables interactivos), 4) Servicios B2B (páginas web, chatbots, mailing, CRM). Bodas/eventos preservados como un escenario demo adicional.
 - ⏳ A la espera de las credenciales (LiveKit Cloud, Deepgram, DeepSeek) para configurar `.env` y levantar el worker.
 
 ### 2026-10-01 — moise
