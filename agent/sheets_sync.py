@@ -79,11 +79,15 @@ class GoogleSheetsSync:
         lead_id = lead_data.get("id") or self.generate_lead_id(lead_data)
         lux_timestamp = lead_data.get("timestamp_lux") or self.get_luxembourg_now()
         
+        phone_val = str(lead_data.get("telefono") or lead_data.get("phone") or "No especificado")
+        if phone_val.startswith("+"):
+            phone_val = "'" + phone_val
+
         return [
             lead_id,
             lux_timestamp,
             lead_data.get("nombre") or lead_data.get("name") or "No especificado",
-            lead_data.get("telefono") or lead_data.get("phone") or "No especificado",
+            phone_val,
             lead_data.get("email") or "No especificado",
             lead_data.get("empresa") or lead_data.get("company") or "Particular",
             lead_data.get("motivo") or lead_data.get("interest") or "Consulta general",
@@ -166,17 +170,78 @@ class GoogleSheetsSync:
         self.save_queue(queue)
         return {"status": "QUEUED_ERROR", "lead_id": lead_id, "row": row}
 
+    def _get_access_token(self) -> Optional[str]:
+        """Obtiene o renueva un token OAuth2 para la cuenta de servicio."""
+        if self.access_token and time.time() < self.token_expiry:
+            return self.access_token
+        if not self.credentials_json:
+            return None
+        try:
+            from google.oauth2 import service_account
+            from google.auth.transport.requests import Request
+            creds_dict = json.loads(self.credentials_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                creds_dict,
+                scopes=["https://www.googleapis.com/auth/spreadsheets"]
+            )
+            credentials.refresh(Request())
+            self.access_token = credentials.token
+            self.token_expiry = time.time() + 3500
+            return self.access_token
+        except Exception as err:
+            logger.error("Error renovando token de Google Sheets Service Account: %s", err)
+            return None
+
+    async def read_leads_from_sheet(self) -> List[Dict[str, Any]]:
+        """Lee los leads directamente desde la hoja 'Leads' del Google Sheet oficial."""
+        token = self._get_access_token()
+        if not token or not self.sheet_id:
+            logger.warning("Credenciales no disponibles para leer Google Sheets.")
+            return []
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{self.sheet_id}/values/Leads!A2:L"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                rows = data.get("values", [])
+                leads = []
+                for row in rows:
+                    if not row or len(row) < 3:
+                        continue
+                    lead_obj = {
+                        "id": row[0] if len(row) > 0 else "",
+                        "timestamp_lux": row[1] if len(row) > 1 else "",
+                        "name": row[2] if len(row) > 2 else "Sin nombre",
+                        "phone": row[3] if len(row) > 3 else "",
+                        "email": row[4] if len(row) > 4 else "",
+                        "company": row[5] if len(row) > 5 else "",
+                        "interest": row[6] if len(row) > 6 else "",
+                        "summary": row[7] if len(row) > 7 else "",
+                        "amount": row[8] if len(row) > 8 else "2.500 €",
+                        "stage": row[9] if len(row) > 9 else "nuevo",
+                        "docuseal_status": row[10] if len(row) > 10 else "BORRADOR",
+                        "agent": row[11] if len(row) > 11 else "Sofía (IA)",
+                    }
+                    leads.append(lead_obj)
+                return leads
+        except Exception as e:
+            logger.error("Error leyendo leads de Google Sheets: %s", e)
+            return []
+
     async def _send_to_sheets_api(self, row: List[Any]) -> bool:
-        """Envía la fila a la Google Sheets API v4."""
-        # Se implementará el token exchange de Service Account o HTTP directo cuando moise configure el JSON
-        url = f"https://sheets.googleapis.com/v4/spreadsheets/{self.sheet_id}/values/A1:append?valueInputOption=USER_ENTERED"
+        """Envía la fila a la Google Sheets API v4 en la pestaña 'Leads'."""
+        token = self._get_access_token()
+        if not token:
+            raise ValueError("No se pudo obtener access token para Google Sheets")
+
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{self.sheet_id}/values/Leads!A1:append?valueInputOption=RAW"
         payload = json.dumps({"values": [row]}).encode("utf-8")
         req = urllib.request.Request(
             url,
             data=payload,
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.access_token or ''}",
+                "Authorization": f"Bearer {token}",
             },
             method="POST",
         )

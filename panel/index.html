@@ -9,13 +9,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@laddtnov/cyberpunk-ui/cyberpunk-ui.css">
-  <script src="https://cdn.jsdelivr.net/npm/tsparticles@2/tsparticles.bundle.min.js"></script>
 </head>
 <body>
-
-  <!-- Ambient Particles Layer (tsParticles) -->
-  <div id="tsparticles" class="particles-bg"></div>
 
   <!-- App Wrapper -->
   <div class="dashboard-layout">
@@ -118,21 +113,39 @@
         </div>
 
         <div class="topbar-right">
-          <button class="btn-toggle-hud" id="btnToggleHud" onclick="toggleHudFx()" title="Activar/Desactivar Efectos HUD Cyberpunk">
-            <span class="hud-icon">⚡</span>
-            <span id="hudStatusText">HUD: ON</span>
-          </button>
-
-          <button class="btn-demo-trigger" id="btnSimulateTrigger" onclick="triggerIncomingCallDemo()">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <button class="btn btn-secondary btn-sm" id="btnSimulateTrigger" onclick="triggerIncomingCallDemo()">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
               <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/>
             </svg>
-            <span>Simular Llamada Entrante</span>
+            <span>Llamada de Prueba</span>
           </button>
           
-          <div class="date-badge" id="currentDateDisplay">1 Oct 2026</div>
+          <div class="date-indicator" id="currentDateDisplay">1 Oct 2026</div>
         </div>
       </header>
+
+      <!-- Client Identification Banner (Apple Design - Flujo Directo de Contacto) -->
+      <section class="client-id-banner" id="clientIdSection">
+        <div class="client-id-card">
+          <div class="client-id-info">
+            <div class="client-id-avatar">👤</div>
+            <div>
+              <div class="client-id-heading">Identifícate para tu sesión</div>
+              <div class="client-id-desc">Tus datos se sincronizan en vivo con Google Sheets y tu llamada con Sofía.</div>
+            </div>
+          </div>
+          <form id="clientIdentificationForm" class="client-id-form" onsubmit="handleClientIdentification(event)">
+            <input type="text" id="clientIdName" placeholder="Tu nombre *" required class="apple-input">
+            <input type="tel" id="clientIdPhone" placeholder="Móvil (+352 ...) *" required class="apple-input">
+            <input type="text" id="clientIdCompany" placeholder="Empresa (opcional)" class="apple-input">
+            <button type="submit" class="btn btn-primary" id="btnSaveClient">Guardar</button>
+          </form>
+          <div class="client-identified-pill" id="clientIdentifiedBadge" style="display: none;">
+            <span>✓</span>
+            <span id="clientIdentifiedText">Cliente conectado</span>
+          </div>
+        </div>
+      </section>
 
       <!-- VIEW 1: EN VIVO (Live Call Monitor) -->
       <section class="view-panel active" id="view-envivo">

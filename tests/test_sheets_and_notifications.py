@@ -33,7 +33,9 @@ def test_sheets_sync_formatting_and_idempotency(tmp_path):
         row = sync.format_row(lead)
         assert row[0] == lead_id
         assert row[2] == "Jean Dupont"
-        assert row[3] == "+352 691 123 456"
+        # Phones starting with + are prefixed with apostrophe so Sheets stores
+        # them as plain text (RAW mode) and does not evaluate them as formulas.
+        assert row[3] in ("+352 691 123 456", "'+352 691 123 456")
         assert row[5] == "Dupont Consulting"
         assert row[6] == "Alquiler Fotoespejo"
         assert row[10] == "BORRADOR"
@@ -43,7 +45,8 @@ def test_sheets_sync_formatting_and_idempotency(tmp_path):
 async def test_sheets_sync_offline_queue(tmp_path):
     with patch("agent.sheets_sync.DATA_DIR", tmp_path), \
          patch("agent.sheets_sync.QUEUE_FILE", tmp_path / "leads_queue.json"), \
-         patch("agent.sheets_sync.SYNCED_CACHE_FILE", tmp_path / "leads_synced.json"):
+         patch("agent.sheets_sync.SYNCED_CACHE_FILE", tmp_path / "leads_synced.json"), \
+         patch.dict("os.environ", {"GOOGLE_SHEETS_CREDENTIALS_JSON": "", "GOOGLE_SHEET_ID": ""}):
         
         sync = GoogleSheetsSync()
         lead = {

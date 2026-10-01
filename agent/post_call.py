@@ -7,14 +7,15 @@ from datetime import datetime, timezone
 import aiohttp
 from openai import AsyncOpenAI
 
-from .config import Config
-from .prompts import LEAD_EXTRACTION_PROMPT
-
 try:
+    from .config import Config
+    from .prompts import LEAD_EXTRACTION_PROMPT
     from .sheets_sync import GoogleSheetsSync
     from .email_notify import EmailNotifier
     from .docuseal_client import DocuSealClient
 except ImportError:
+    from config import Config
+    from prompts import LEAD_EXTRACTION_PROMPT
     from sheets_sync import GoogleSheetsSync
     from email_notify import EmailNotifier
     from docuseal_client import DocuSealClient

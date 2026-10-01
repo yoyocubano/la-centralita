@@ -249,33 +249,27 @@ class HybridCentralitaProvider extends MockCentralitaProvider {
         const res = await fetch("/api/leads");
         if (res.ok) {
           const data = await res.json();
-          if (data.leads && data.leads.length > 0) {
-            const mapped = data.leads.map((l, idx) => ({
-              id: l.id || `lead-api-${idx}`,
+          if (data && Array.isArray(data.leads)) {
+            return data.leads.map((l, idx) => ({
+              id: l.id || `lead-sheet-${idx}`,
               name: l.nombre || l.name || "Contacto",
               phone: l.telefono || l.phone || "No indicado",
               company: l.empresa || l.company || "Empresa / Particular",
               interest: l.motivo || l.interest || "Consulta",
               eventDate: l.fecha_evento || l.eventDate || "A convenir",
               stage: l.stage || "nuevo",
-              summary: l.detalles || l.summary || "Capturado en llamada telefónica",
+              summary: l.detalles || l.summary || "Registro en Google Sheets",
               timestamp: l.timestamp_lux || l.timestamp || "Hoy",
+              docusealSigned: l.docuseal_status === "FIRMADO",
               docusealStatus: l.docuseal_status || "BORRADOR",
               docusealUrl: l.docuseal_url || null,
             }));
-            const mockLeads = await super.getLeads();
-            const allLeads = [...mapped];
-            for (const ml of mockLeads) {
-              if (!allLeads.some(al => al.phone === ml.phone || al.id === ml.id)) {
-                allLeads.push(ml);
-              }
-            }
-            return allLeads;
           }
         }
       } catch (e) {
-        console.warn("[DataProvider] Error consultando /api/leads, recurriendo a local:", e);
+        console.warn("[DataProvider] Error consultando /api/leads:", e);
       }
+      return [];
     }
     return super.getLeads();
   }
@@ -874,12 +868,107 @@ document.addEventListener("DOMContentLoaded", () => {
   renderCalendar();
   renderAppointments();
   initBackendWebSocket();
-  initParticlesBackground();
+  checkSavedClientIdentity();
+  startLiveLeadsSync();
 
   const now = new Date();
   const options = { day: 'numeric', month: 'short', year: 'numeric' };
   document.getElementById("currentDateDisplay").innerText = now.toLocaleDateString('es-ES', options);
 });
+
+function checkSavedClientIdentity() {
+  try {
+    const raw = localStorage.getItem("welux_current_client");
+    if (raw) {
+      const data = jsonParseSafe(raw);
+      if (data && data.nombre) {
+        updateClientIdentifiedUI(data);
+      }
+    }
+  } catch (err) {
+    console.warn("Error leyendo cliente guardado:", err);
+  }
+}
+
+async function handleClientIdentification(e) {
+  if (e) e.preventDefault();
+  const nameInput = document.getElementById("clientIdName");
+  const phoneInput = document.getElementById("clientIdPhone");
+  const compInput = document.getElementById("clientIdCompany");
+
+  const name = nameInput ? nameInput.value.trim() : "";
+  const phone = phoneInput ? phoneInput.value.trim() : "";
+  const company = compInput ? compInput.value.trim() : "Particular";
+
+  if (!name || !phone) {
+    alert("Por favor completa al menos tu nombre y número de teléfono.");
+    return;
+  }
+
+  const clientPayload = {
+    nombre: name,
+    telefono: phone,
+    empresa: company || "Particular",
+    motivo: "Identificación de cliente en portal web",
+    detalles: `Cliente registrado en La Centralita: ${name}, teléfono ${phone}`
+  };
+
+  try {
+    const res = await fetch("/api/client-identify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(clientPayload)
+    });
+    if (res.ok) {
+      localStorage.setItem("welux_current_client", JSON.stringify(clientPayload));
+      updateClientIdentifiedUI(clientPayload);
+      const liveName = document.getElementById("liveCallerName");
+      const liveNum = document.getElementById("liveCallerNumber");
+      if (liveName) liveName.innerText = name;
+      if (liveNum) liveNum.innerText = `${phone} (${company})`;
+      cachedLeads = await dataProvider.getLeads();
+      renderLeadsGrid();
+      alert(`✓ ¡Gracias ${name}! Tus datos quedaron registrados y sincronizados con Google Sheets.`);
+    }
+  } catch (err) {
+    console.warn("Fallo conectando a /api/client-identify:", err);
+    localStorage.setItem("welux_current_client", JSON.stringify(clientPayload));
+    updateClientIdentifiedUI(clientPayload);
+  }
+}
+
+function updateClientIdentifiedUI(data) {
+  const form = document.getElementById("clientIdentificationForm");
+  const badge = document.getElementById("clientIdentifiedBadge");
+  const text = document.getElementById("clientIdentifiedText");
+  if (form && badge) {
+    form.style.display = "none";
+    badge.style.display = "inline-flex";
+    if (text) {
+      text.innerText = `${data.nombre} (${data.telefono})`;
+    }
+  }
+}
+
+function startLiveLeadsSync() {
+  // Polling automático cada 15 segundos hacia Google Sheets a través de /api/leads
+  setInterval(async () => {
+    try {
+      const freshLeads = await dataProvider.getLeads();
+      if (!Array.isArray(freshLeads)) return;
+      const prevIds = cachedLeads.map(l => l.id + ":" + l.stage).join(",");
+      const freshIds = freshLeads.map(l => l.id + ":" + l.stage).join(",");
+      if (prevIds !== freshIds) {
+        console.info("[LiveSync] Se detectaron cambios en Google Sheets, actualizando interfaz...");
+        cachedLeads = freshLeads;
+        renderLeadsGrid();
+        renderTwentyKanban();
+      }
+    } catch (err) {
+      console.warn("[LiveSync] Error en polling:", err);
+    }
+  }, 15000);
+}
 
 function initNavigation() {
   const navItems = document.querySelectorAll(".nav-item");

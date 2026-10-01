@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "weddings-events-96440339-a53e7"
+  },
+  "targets": {
+    "weddings-events-96440339-a53e7": {
+      "hosting": {
+        "la-centralita": [
+          "la-centralita"
+        ]
+      }
+    }
+  }
+}

@@ -29,6 +29,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agent.config import Config
 from agent.post_call import PostCallProcessor
+from agent.sheets_sync import GoogleSheetsSync
+from agent.email_notify import EmailNotifier
 
 # ==============================================================================
 # 1. LOGGING ESTRUCTURADO EN JSON (OBSERVABILIDAD AUDITABLE)
@@ -113,6 +115,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://yoyocubano.github.io",
+        "https://la-centralita.web.app",
+        "https://la-centralita--preview-j4bp6lio.web.app",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
         "http://localhost:8080",
@@ -458,48 +462,61 @@ async def get_calls():
     return {"calls": CALLS_DATABASE, "count": len(CALLS_DATABASE)}
 
 
+class ClientIdentifyModel(BaseModel):
+    nombre: str = Field(..., min_length=2, max_length=100)
+    telefono: str = Field(..., min_length=5, max_length=30)
+    email: Optional[str] = Field(default="No especificado", max_length=100)
+    empresa: Optional[str] = Field(default="Particular", max_length=100)
+    motivo: Optional[str] = Field(default="Consulta general", max_length=150)
+    detalles: Optional[str] = Field(default="Identificación desde portal del cliente", max_length=500)
+
+
+@app.post("/api/client-identify", tags=["Cliente & Portal"])
+async def client_identify_endpoint(payload: ClientIdentifyModel):
+    """Registra la identificación del cliente, escribe el lead en Google Sheets y notifica a info@weluxevents.com."""
+    lead_dict = payload.model_dump()
+    sheets_sync = GoogleSheetsSync()
+    sync_res = await sheets_sync.sync_lead(lead_dict)
+
+    # Notificar por correo al dueño en info@weluxevents.com
+    notifier = EmailNotifier()
+    call_info = {
+        "lead": lead_dict,
+        "transcripcion": f"Identificación directa de cliente desde portal web: {payload.nombre} ({payload.telefono}) - Empresa: {payload.empresa}",
+        "duration_seconds": 0,
+        "duration_formatted": "Portal Web",
+        "timestamp_lux": sheets_sync.get_luxembourg_now(),
+    }
+    await notifier.send_post_call_notification(call_info)
+
+    # Actualizar base de datos en memoria y retransmitir por WebSocket
+    LEADS_DATABASE.append(lead_dict)
+    await monitor_hub.broadcast({
+        "type": "lead_created",
+        "lead": lead_dict,
+        "source": "client_portal_identification",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    return {
+        "status": "ok",
+        "message": "Identificación registrada y notificada con éxito",
+        "lead_id": sync_res.get("lead_id"),
+    }
+
+
 @app.get("/api/leads", tags=["Persistencia"])
 async def get_leads():
-    """Devuelve la bandeja de leads extraídos con sincronización desde persistencia."""
-    leads = list(LEADS_DATABASE)
-    # Si la lista en memoria está vacía, intentar hidratar desde la cola y caché local
-    if not leads:
-        queue_path = PROJECT_ROOT / "data" / "leads_queue.json"
-        synced_path = PROJECT_ROOT / "data" / "leads_synced.json"
-        if queue_path.exists():
-            try:
-                with open(queue_path, "r", encoding="utf-8") as f:
-                    q_data = json.load(f)
-                    for item in q_data:
-                        lead = item.get("lead")
-                        if lead and lead not in leads:
-                            leads.append(lead)
-            except Exception:
-                pass
-        if synced_path.exists():
-            try:
-                with open(synced_path, "r", encoding="utf-8") as f:
-                    s_data = json.load(f)
-                    for _, val in s_data.items():
-                        lead_info = val.get("data")
-                        if lead_info and isinstance(lead_info, list) and len(lead_info) >= 8:
-                            lead_obj = {
-                                "id": lead_info[0],
-                                "timestamp_lux": lead_info[1],
-                                "nombre": lead_info[2],
-                                "telefono": lead_info[3],
-                                "email": lead_info[4],
-                                "empresa": lead_info[5],
-                                "motivo": lead_info[6],
-                                "detalles": lead_info[7],
-                                "valor_eur": lead_info[8] if len(lead_info) > 8 else "2.500 €",
-                                "docuseal_status": lead_info[10] if len(lead_info) > 10 else "BORRADOR",
-                            }
-                            if not any(l.get("id") == lead_obj["id"] for l in leads):
-                                leads.append(lead_obj)
-            except Exception:
-                pass
-    return {"leads": leads, "count": len(leads)}
+    """Devuelve la bandeja de leads extraídos leyendo en vivo desde Google Sheets 'La Centralita — Leads'."""
+    sheets_sync = GoogleSheetsSync()
+    sheet_leads = await sheets_sync.read_leads_from_sheet()
+    if sheet_leads:
+        return {"leads": sheet_leads, "count": len(sheet_leads), "source": "google_sheets_live"}
+
+    # Si la lista en memoria tiene elementos (ej. llamada recién terminada o simulación activa)
+    if LEADS_DATABASE:
+        return {"leads": LEADS_DATABASE, "count": len(LEADS_DATABASE), "source": "memory_live"}
+
+    return {"leads": [], "count": 0, "source": "google_sheets_live", "status": "empty"}
 
 
 @app.get("/api/system/internal", tags=["Métricas Internas & ROI"])
