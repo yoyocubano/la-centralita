@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>La Centralita — Página de prueba</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 3rem auto; padding: 0 1rem; }
+  button { font-size: 1.1rem; padding: .7rem 1.4rem; cursor: pointer; }
+  #log { background: #111; color: #0f0; padding: 1rem; height: 220px; overflow-y: auto; white-space: pre-wrap; }
+  input { width: 100%; margin: .3rem 0; padding: .5rem; }
+</style>
+</head>
+<body>
+<h1>📞 La Centralita — prueba de voz</h1>
+<p>Pega la URL de LiveKit y el token generado con <code>agent/make_token.py</code>:</p>
+<input id="url" placeholder="wss://tu-proyecto.livekit.cloud">
+<input id="token" placeholder="token JWT">
+<p>
+  <button id="call">Llamar</button>
+  <button id="hangup" disabled>Colgar</button>
+</p>
+<h3>Estado</h3>
+<div id="log"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+<script>
+const log = (m) => { const el = document.getElementById('log'); el.textContent += m + "\n"; el.scrollTop = el.scrollHeight; };
+let room = null;
+
+document.getElementById('call').onclick = async () => {
+  const url = document.getElementById('url').value.trim();
+  const token = document.getElementById('token').value.trim();
+  if (!url || !token) { log("Falta URL o token."); return; }
+  room = new LivekitClient.Room();
+  room.on(LivekitClient.RoomEvent.TrackSubscribed, (track) => {
+    if (track.kind === LivekitClient.Track.Kind.Audio) {
+      const audio = track.attach();
+      document.body.appendChild(audio);
+      log("🔊 Audio del agente conectado.");
+    }
+  });
+  room.on(LivekitClient.RoomEvent.Disconnected, () => log("Llamada terminada."));
+  await room.connect(url, token);
+  log("✅ Conectado a la sala. Habilitando micrófono...");
+  await room.localParticipant.setMicrophoneEnabled(true);
+  log("🎙️ Habla con el agente.");
+  document.getElementById('call').disabled = true;
+  document.getElementById('hangup').disabled = false;
+};
+
+document.getElementById('hangup').onclick = async () => {
+  if (room) await room.disconnect();
+  document.getElementById('call').disabled = false;
+  document.getElementById('hangup').disabled = true;
+};
+</script>
+</body>
+</html>
