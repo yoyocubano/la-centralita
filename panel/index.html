@@ -112,14 +112,14 @@
         </div>
 
         <div class="topbar-right">
-          <button class="btn-demo-trigger" id="btnSimulateTrigger" onclick="triggerIncomingCallDemo()">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/>
+          <button class="btn-refresh-data" id="btnRefreshData" onclick="refreshAllRealData()" title="Actualizar datos en vivo desde Google Sheets y backend">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
             </svg>
-            <span>Simular Llamada Entrante</span>
+            <span>Actualizar Datos</span>
           </button>
           
-          <div class="date-badge" id="currentDateDisplay">1 Oct 2026</div>
+          <div class="date-badge" id="currentDateDisplay" title="Hora oficial Europe/Luxembourg">--:--:-- (Luxemburgo)</div>
         </div>
       </header>
 
@@ -127,19 +127,19 @@
       <section class="view-panel active" id="view-envivo">
         
         <!-- Live Call Banner -->
-        <div class="live-call-banner">
+        <div class="live-call-banner" id="liveCallBanner">
           <div class="caller-meta">
-            <div class="caller-avatar" id="liveCallerAvatar">JW</div>
+            <div class="caller-avatar" id="liveCallerAvatar">—</div>
             <div class="caller-text">
               <div class="caller-name-row">
-                <span class="caller-name" id="liveCallerName">Jean-Luc Weber</span>
-                <span class="call-badge-live">EN LLAMADA</span>
-                <span class="caller-origin" id="liveCallerNumber">+352 691 452 890 (Luxemburgo)</span>
+                <span class="caller-name" id="liveCallerName">Centralita en Espera</span>
+                <span class="call-badge-live" id="liveCallBadgeStatus">EN ESPERA</span>
+                <span class="caller-origin" id="liveCallerNumber">Línea telefónica y WebRTC preparadas (+352)</span>
               </div>
               <div class="caller-subline">
                 <span>Operadora: <strong>Sofía (IA WELUX)</strong></span>
                 <span class="sep">•</span>
-                <span>Sala: <code id="liveRoomName">centralita-welux-live</code></span>
+                <span>Sala: <code id="liveRoomName">centralita-test</code></span>
                 <span class="sep">•</span>
                 <span>Transporte: <strong>LiveKit WebRTC Opus 48kHz</strong></span>
               </div>
@@ -149,7 +149,7 @@
           <div class="call-stats-group">
             <div class="timer-box">
               <span class="timer-label">DURACIÓN</span>
-              <span class="timer-digits" id="liveDurationTimer">01:42</span>
+              <span class="timer-digits" id="liveDurationTimer">00:00</span>
             </div>
             <!-- Audio Waveform Visualizer -->
             <div class="waveform-box">
@@ -270,28 +270,28 @@
             <div class="lead-card-body">
               <div class="lead-field-group">
                 <label>Nombre del Contacto (Editable en Vivo)</label>
-                <input type="text" id="extLeadName" class="operator-edit-input" value="Jean-Luc Weber" placeholder="Nombre completo del cliente..." oninput="handleLiveLeadFieldChange('nombre', this.value)">
+                <input type="text" id="extLeadName" class="operator-edit-input" value="" placeholder="Nombre completo del cliente..." oninput="handleLiveLeadFieldChange('nombre', this.value)">
               </div>
 
               <div class="lead-field-row">
                 <div class="lead-field-group">
                   <label>Teléfono Directo</label>
-                  <input type="tel" id="extLeadPhone" class="operator-edit-input" value="+352 691 452 890" placeholder="+352 ..." oninput="handleLiveLeadFieldChange('telefono', this.value)">
+                  <input type="tel" id="extLeadPhone" class="operator-edit-input" value="" placeholder="+352 ..." oninput="handleLiveLeadFieldChange('telefono', this.value)">
                 </div>
                 <div class="lead-field-group">
                   <label>Fecha del Evento</label>
-                  <input type="text" id="extLeadDate" class="operator-edit-input text-gold" value="18 de Noviembre 2026" placeholder="DD/MM/AAAA o texto..." oninput="handleLiveLeadFieldChange('fecha_evento', this.value)">
+                  <input type="text" id="extLeadDate" class="operator-edit-input text-gold" value="" placeholder="DD/MM/AAAA o fecha estimada..." oninput="handleLiveLeadFieldChange('fecha_evento', this.value)">
                 </div>
               </div>
 
               <div class="lead-field-row">
                 <div class="lead-field-group">
                   <label>Empresa / Organización</label>
-                  <input type="text" id="extLeadCompany" class="operator-edit-input" value="Consultora Kirchberg" placeholder="Empresa..." oninput="handleLiveLeadFieldChange('empresa', this.value)">
+                  <input type="text" id="extLeadCompany" class="operator-edit-input" value="" placeholder="Empresa u organización..." oninput="handleLiveLeadFieldChange('empresa', this.value)">
                 </div>
                 <div class="lead-field-group">
                   <label>Presupuesto Estimado (€)</label>
-                  <input type="text" id="extLeadBudget" class="operator-edit-input text-gold" value="2.500 €" placeholder="Ej: 2.500 €" oninput="handleLiveLeadFieldChange('valor_eur', this.value)">
+                  <input type="text" id="extLeadBudget" class="operator-edit-input text-gold" value="" placeholder="Ej: 2.500 €" oninput="handleLiveLeadFieldChange('valor_eur', this.value)">
                 </div>
               </div>
 
@@ -307,7 +307,7 @@
 
               <div class="lead-field-group">
                 <label>Notas Privadas de la Operadora / Auditoría</label>
-                <textarea id="extLeadOperatorNotes" class="operator-notes-textarea" placeholder="Escribe notas operativas internas durante la llamada... (se guardan en tiempo real)" oninput="handleLiveLeadFieldChange('notas_operador', this.value)">Cliente busca producción técnica completa para salón en Kirchberg. Requiere propuesta formal antes del viernes. Presupuesto estimado flexible.</textarea>
+                <textarea id="extLeadOperatorNotes" class="operator-notes-textarea" placeholder="Escribe notas operativas internas durante la llamada... (se guardan en tiempo real)" oninput="handleLiveLeadFieldChange('notas_operador', this.value)"></textarea>
               </div>
 
               <div class="lead-auto-status">
@@ -315,9 +315,9 @@
                   <span class="status-dot"></span>
                   <label style="font-size: 0.7rem; margin-right: 4px;">Etapa CRM:</label>
                   <select id="extLeadStatusSelect" class="lead-stage-select" style="min-width: 140px; padding: 4px 8px;" onchange="handleLiveLeadFieldChange('stage', this.value)">
-                    <option value="nuevo">Nuevo Lead</option>
+                    <option value="nuevo" selected>Nuevo Lead</option>
                     <option value="contactado">En Conversación</option>
-                    <option value="agendado" selected>Calificado</option>
+                    <option value="agendado">Calificado</option>
                     <option value="transferido">Transferido a Humano</option>
                     <option value="ganado">Cerrado / Ganado</option>
                   </select>

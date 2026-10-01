@@ -20,151 +20,78 @@ class CentralitaDataProvider {
   async updateLeadStage(id, stage) { throw new Error("Not implemented"); }
 }
 
-class MockCentralitaProvider extends CentralitaDataProvider {
+class RealBackendProvider extends CentralitaDataProvider {
   constructor() {
     super();
-    this.storageKeyLeads = "welux_centralita_leads_v4";
-    this.storageKeyCalls = "welux_centralita_calls_v4";
-    this.initDefaultData();
+    this.apiAvailable = null;
+    this.storageKeyCalls = "welux_centralita_calls_real";
+    this.storageKeyLeads = "welux_centralita_leads_real";
   }
 
-  initDefaultData() {
-    if (!localStorage.getItem(this.storageKeyCalls)) {
-      const defaultCalls = [
-        {
-          id: "call-101",
-          date: "Hoy, 13:42",
-          client: "Pierre Meyers",
-          phone: "+352 691 452 890",
-          duration: "02:18",
-          operator: "Sofía (IA)",
-          reason: "Alquiler Fotoespejo (Photobooth)",
-          hasLead: true,
-          transcript: `Sofía: ¡Hola! Gracias por comunicarte con nuestra centralita de servicios empresariales. Soy Sofía, ¿en qué podemos asesorarte hoy?
-Pierre Meyers: Hola Sofía, buenas tardes. Me llamo Pierre Meyers, de una consultora en Kirchberg. Queremos alquilar un fotoespejo interactivo photobooth para nuestra jornada de empresa el 14 de noviembre.
-Sofía: ¡Qué excelente iniciativa, Pierre! El fotoespejo interactivo es sensacional para dinamizar eventos corporativos, con impresiones instantáneas personalizadas con el logo de tu empresa. ¿Aproximadamente cuántos asistentes calculan?
-Pierre Meyers: Seremos unas 120 personas, en nuestras oficinas en Kirchberg. Mi número es el +352 691 452 890.
-Sofía: ¡Excelente elección! Tomo nota de todo, Pierre. Nuestro asesor de alquileres preparará la propuesta formal hoy mismo con las opciones de personalización. ¿Deseas agregar algún otro juego o inflable?
-Pierre Meyers: No, con el fotoespejo estamos perfectos. Quedo a la espera de su propuesta. ¡Muchas gracias!
-Sofía: Un auténtico placer, Pierre. ¡Que tengas un excelente día en Luxemburgo!`
-        },
-        {
-          id: "call-102",
-          date: "Hoy, 12:15",
-          client: "Camille Wagner",
-          phone: "+352 621 445 566",
-          duration: "01:45",
-          operator: "Sofía (IA)",
-          reason: "Asesoría de Negocios y Procesos",
-          hasLead: true,
-          transcript: `Sofía: ¡Hola! Te atiende Sofía de la centralita empresarial. ¿Cómo podemos colaborar con tu negocio hoy?
-Camille Wagner: Hola, hablo de Wagner Logistics. Buscamos asesoría de negocios para reestructurar nuestros flujos de ventas y automatizar la atención comercial telefónica 24/7.
-Sofía: ¡Comprendo perfectamente, Camille! Ayudamos a pymes en Luxemburgo a digitalizar y optimizar sus procesos comerciales. ¿Te vendría bien agendar una sesión de diagnóstico de 30 minutos?
-Camille Wagner: Sí, estupendo. Al teléfono +352 621 445 566.
-Sofía: Perfecto Camille, queda coordinada la llamada con nuestro consultor estratégico. ¡Buen día!`
-        },
-        {
-          id: "call-103",
-          date: "Hoy, 11:05",
-          client: "Alexandre Dupont",
-          phone: "+352 661 889 012",
-          duration: "03:10",
-          operator: "Sofía (IA)",
-          reason: "Web Corporativa, Chatbot & CRM",
-          hasLead: true,
-          transcript: `Sofía: ¡Hola! Gracias por llamar a nuestra división de servicios digitales y B2B. Soy Sofía, ¿en qué te puedo apoyar?
-Alexandre Dupont: Hola Sofía, necesitamos modernizar la página web de nuestro despacho legal en Ciudad de Luxemburgo, añadir un chatbot con IA para clientes y conectar todo al CRM Twenty.
-Sofía: ¡Excelente proyecto, Alexandre! Desarrollamos portales web optimizados y chatbots autónomos que capturan clientes y los registran en Twenty. ¿Para qué fecha les gustaría tenerlo operativo?
-Alexandre Dupont: Para antes de diciembre. Mi móvil directo es el +352 661 889 012.
-Sofía: Tomo nota, Alexandre. Agendamos una llamada de especificación técnica hoy mismo. Te contactamos en breve.`
-        },
-        {
-          id: "call-104",
-          date: "Hoy, 10:20",
-          client: "Marc Becker",
-          phone: "+352 691 334 221",
-          duration: "02:05",
-          operator: "Sofía (IA)",
-          reason: "Alquiler Inflables (Billar & Minigolf)",
-          hasLead: true,
-          transcript: `Sofía: Centralita de servicios y alquileres, le atiende Sofía. ¿En qué le puedo colaborar?
-Marc Becker: Buenas, hablo de un concesionario en Bertrange. Queremos alquilar inflables interactivos de minigolf y billar para una jornada de puertas abiertas el 22 de octubre.
-Sofía: ¡Fantástica idea Marc! Los inflables de minigolf y billar gigante son un éxito para dinamizar eventos de empresa. ¿Sería para entrega y montaje completo en Bertrange?
-Marc Becker: Sí, exactamente. Mi contacto es el +352 691 334 221.
-Sofía: Perfecto Marc, bloqueamos la fecha provisional y te enviamos el presupuesto con transporte y montaje incluidos.`
-        }
-      ];
-      localStorage.setItem(this.storageKeyCalls, JSON.stringify(defaultCalls));
+  async checkApi() {
+    try {
+      const res = await fetch("/api/status", { method: "GET", headers: { "Accept": "application/json" } });
+      this.apiAvailable = res.ok;
+    } catch {
+      this.apiAvailable = false;
     }
-
-    if (!localStorage.getItem(this.storageKeyLeads)) {
-      const defaultLeads = [
-        {
-          id: "lead-1",
-          name: "Pierre Meyers",
-          phone: "+352 691 452 890",
-          company: "Consultora Kirchberg",
-          interest: "Alquiler Fotoespejo (Photobooth)",
-          eventDate: "14 Nov 2026",
-          stage: "nuevo",
-          summary: "Alquiler de fotoespejo interactivo para jornada de empresa (120 personas) en Kirchberg. Impresiones personalizadas con logo.",
-          timestamp: "Hoy, 13:42"
-        },
-        {
-          id: "lead-2",
-          name: "Camille Wagner",
-          phone: "+352 621 445 566",
-          company: "Wagner Logistics SARL",
-          interest: "Asesoría de Negocios y Procesos",
-          eventDate: "28 Oct 2026",
-          stage: "contactado",
-          summary: "Consultoría estratégica para optimización de flujos comerciales y atención telefónica automatizada 24/7.",
-          timestamp: "Hoy, 12:15"
-        },
-        {
-          id: "lead-3",
-          name: "Alexandre Dupont",
-          phone: "+352 661 889 012",
-          company: "Dupont & Partners Law",
-          interest: "Web Corporativa, Chatbot & CRM",
-          eventDate: "15 Nov 2026",
-          stage: "agendado",
-          summary: "Desarrollo web corporativo, chatbot con IA conversacional y despliegue del CRM Twenty para despacho en Luxemburgo.",
-          timestamp: "Hoy, 11:05"
-        },
-        {
-          id: "lead-4",
-          name: "Marc Becker",
-          phone: "+352 691 334 221",
-          company: "Becker Auto Bertrange",
-          interest: "Alquiler Inflables (Billar & Minigolf)",
-          eventDate: "22 Oct 2026",
-          stage: "agendado",
-          summary: "Reserva de inflables interactivos de minigolf y billar para jornada de puertas abiertas en Bertrange.",
-          timestamp: "Hoy, 10:20"
-        },
-        {
-          id: "lead-5",
-          name: "Sophie Laurent",
-          phone: "+352 661 772 334",
-          company: "Particular",
-          interest: "Gala / Boda Château Septfontaines",
-          eventDate: "15 May 2027",
-          stage: "ganado",
-          summary: "Producción audiovisual y luces arquitectónicas para evento privado de gala. Contratado con DocuSeal.",
-          timestamp: "Ayer, 16:30"
-        }
-      ];
-      localStorage.setItem(this.storageKeyLeads, JSON.stringify(defaultLeads));
-    }
+    return this.apiAvailable;
   }
 
   async getCallsHistory() {
-    return JSON.parse(localStorage.getItem(this.storageKeyCalls) || "[]");
+    try {
+      const res = await fetch("/api/calls");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.calls)) {
+          return data.calls.map(c => ({
+            id: c.call_id || c.id || "call-" + Math.random().toString(36).substr(2, 6),
+            date: c.timestamp ? new Date(c.timestamp).toLocaleString("es-ES", { timeZone: "Europe/Luxembourg" }) : "Reciente",
+            client: (c.lead && c.lead.nombre) || c.client || "Cliente Web",
+            phone: (c.lead && c.lead.telefono) || c.phone || "No especificado",
+            duration: c.duration || "00:00",
+            operator: "Sofía (IA)",
+            reason: (c.lead && c.lead.motivo) || c.reason || "Consulta comercial",
+            hasLead: Boolean(c.lead),
+            transcript: typeof c.transcript === "string" ? c.transcript : JSON.stringify(c.transcript || []),
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn("[RealBackendProvider] Error consultando /api/calls:", e);
+    }
+    const local = localStorage.getItem(this.storageKeyCalls);
+    return local ? JSON.parse(local) : [];
   }
 
   async getLeads() {
-    return JSON.parse(localStorage.getItem(this.storageKeyLeads) || "[]");
+    try {
+      const res = await fetch("/api/leads");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.leads)) {
+          return data.leads.map((l, idx) => ({
+            id: l.id || `lead-${idx}`,
+            name: l.name || l.nombre || "Contacto",
+            phone: l.phone || l.telefono || "No indicado",
+            company: l.company || l.empresa || "Empresa / Particular",
+            interest: l.interest || l.motivo || "Consulta",
+            eventDate: l.fecha_evento || l.eventDate || "A convenir",
+            stage: l.stage || "nuevo",
+            summary: l.summary || l.detalles || "Registro en Google Sheets",
+            timestamp: l.timestamp_lux || l.timestamp || "Hoy",
+            docusealSigned: l.docuseal_status === "FIRMADO",
+            docusealStatus: l.docuseal_status || "BORRADOR",
+            docusealUrl: l.docuseal_url || null,
+            amount: l.amount || "2.500 €"
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn("[RealBackendProvider] Error consultando /api/leads:", e);
+    }
+    const local = localStorage.getItem(this.storageKeyLeads);
+    return local ? JSON.parse(local) : [];
   }
 
   async saveNewCall(call) {
@@ -191,85 +118,7 @@ Sofía: Perfecto Marc, bloqueamos la fecha provisional y te enviamos el presupue
   }
 }
 
-class HybridCentralitaProvider extends MockCentralitaProvider {
-  constructor() {
-    super();
-    this.apiAvailable = null;
-  }
-
-  async checkApi() {
-    if (this.apiAvailable !== null) return this.apiAvailable;
-    try {
-      const res = await fetch("/api/status", { method: "GET", headers: { "Accept": "application/json" } });
-      this.apiAvailable = res.ok;
-    } catch {
-      this.apiAvailable = false;
-    }
-    return this.apiAvailable;
-  }
-
-  async getCallsHistory() {
-    if (await this.checkApi()) {
-      try {
-        const res = await fetch("/api/calls");
-        if (res.ok) {
-          const data = await res.json();
-          if (data.calls && data.calls.length > 0) {
-            const mapped = data.calls.map(c => ({
-              id: c.call_id || c.id || "call-" + Math.random().toString(36).substr(2, 6),
-              date: c.timestamp ? new Date(c.timestamp).toLocaleString("es-ES", { timeZone: "Europe/Luxembourg" }) : "Reciente",
-              client: (c.lead && c.lead.nombre) || c.client || "Cliente Web",
-              phone: (c.lead && c.lead.telefono) || c.phone || "No especificado",
-              duration: c.duration || "01:30",
-              operator: "Sofía (IA)",
-              reason: (c.lead && c.lead.motivo) || c.reason || "Consulta comercial",
-              hasLead: Boolean(c.lead),
-              transcript: typeof c.transcript === "string" ? c.transcript : JSON.stringify(c.transcript || []),
-            }));
-            return mapped;
-          }
-        }
-      } catch (e) {
-        console.warn("[DataProvider] Error consultando /api/calls:", e);
-      }
-      return [];
-    }
-    return [];
-  }
-
-  async getLeads() {
-    if (await this.checkApi()) {
-      try {
-        const res = await fetch("/api/leads");
-        if (res.ok) {
-          const data = await res.json();
-          if (data && Array.isArray(data.leads)) {
-            return data.leads.map((l, idx) => ({
-              id: l.id || `lead-sheet-${idx}`,
-              name: l.nombre || l.name || "Contacto",
-              phone: l.telefono || l.phone || "No indicado",
-              company: l.empresa || l.company || "Empresa / Particular",
-              interest: l.motivo || l.interest || "Consulta",
-              eventDate: l.fecha_evento || l.eventDate || "A convenir",
-              stage: l.stage || "nuevo",
-              summary: l.detalles || l.summary || "Registro en Google Sheets",
-              timestamp: l.timestamp_lux || l.timestamp || "Hoy",
-              docusealSigned: l.docuseal_status === "FIRMADO",
-              docusealStatus: l.docuseal_status || "BORRADOR",
-              docusealUrl: l.docuseal_url || null,
-            }));
-          }
-        }
-      } catch (e) {
-        console.warn("[DataProvider] Error consultando /api/leads:", e);
-      }
-      return [];
-    }
-    return [];
-  }
-}
-
-const dataProvider = new HybridCentralitaProvider();
+const dataProvider = new RealBackendProvider();
 
 // ==============================================================================
 // 2. CONEXIÓN WEBSOCKET AL BACKEND
@@ -312,18 +161,18 @@ function initBackendWebSocket() {
         updateConnectionPill("NO AUTORIZADO (4001)", "error", "Token Inválido");
         return;
       }
-      updateConnectionPill("MODO DEMO ACTIVO", "standby", "Simulación Local");
+      updateConnectionPill("DESCONECTADO", "standby", "Reintentando...");
       // Reintento en segundo plano
       setTimeout(initBackendWebSocket, 15000);
     };
 
     backendSocket.onerror = () => {
       isBackendConnected = false;
-      updateConnectionPill("MODO DEMO ACTIVO", "standby", "Simulación Local");
+      updateConnectionPill("ERROR CONEXIÓN", "standby", "Revisar Backend");
     };
   } catch (err) {
-    console.log("[Monitor] Servidor backend no disponible en este host. Ejecutando en Modo Demo.");
-    updateConnectionPill("MODO DEMO ACTIVO", "standby", "Simulación Local");
+    console.log("[Monitor] Servidor backend no disponible en este host.");
+    updateConnectionPill("SIN CONEXIÓN", "standby", "Backend Inactivo");
   }
 }
 
@@ -444,28 +293,35 @@ function speakSofia(text, onEnd) {
 // 4. MÓDULO 1: LLAMADA EN VIVO (EN VIVO STREAMING)
 // ==============================================================================
 
-const LIVE_CALL_SCRIPT = [
-  { role: "agent", author: "Sofía (IA WELUX)", time: "00:03", text: "¡Hola! Gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?" },
-  { role: "customer", author: "Jean-Luc Weber", time: "00:15", text: "Hola Sofía, buenas tardes. Me llamo Jean-Luc Weber, de una consultora aquí en Kirchberg. Queremos organizar nuestra gala de fin de año el 18 de noviembre para unas 150 personas." },
-  { role: "agent", author: "Sofía (IA WELUX)", time: "00:30", text: "¡Qué maravilla de evento, Jean-Luc! Por supuesto, contamos con sistemas completos de iluminación arquitectónica, audio profesional line-array y servicio de DJ para galas corporativas. ¿Ya tienen el salón reservado?" },
-  { role: "customer", author: "Jean-Luc Weber", time: "00:48", text: "Sí, en el salón principal de Kirchberg. Necesitaremos también un par de micrófonos inalámbricos para los discursos iniciales. Mi móvil de contacto es el +352 691 452 890." },
-  { role: "agent", author: "Sofía (IA WELUX)", time: "01:05", text: "¡Excelente elección! Tomo nota de los micrófonos y el recinto. Nuestro equipo de producción preparará la cotización personalizada hoy mismo y te la enviaremos de inmediato. ¿Hay algún otro detalle técnico?" },
-  { role: "customer", author: "Jean-Luc Weber", time: "01:22", text: "No, con eso estamos perfectos por ahora. Quedo a la espera de su propuesta. ¡Muchas gracias!" },
-  { role: "agent", author: "Sofía (IA WELUX)", time: "01:30", text: "Un auténtico placer, Jean-Luc. ¡Que tengas un excelente día en Luxemburgo!" }
-];
-
 let streamIndex = 0;
 let callDurationTimer = null;
 let currentDurationSecs = 0;
-let isCallActive = true;
+let isCallActive = false;
 
 function loadLiveCallInitialStream() {
   const container = document.getElementById("liveChatStream");
+  if (!container) return;
   container.innerHTML = "";
-  for (let i = 0; i < 4; i++) {
-    appendStreamTurn(LIVE_CALL_SCRIPT[i]);
-  }
-  streamIndex = 4;
+  const idleNotice = document.createElement("div");
+  idleNotice.className = "text-center text-muted";
+  idleNotice.style.cssText = "padding: 3rem 1rem; color: var(--text-secondary);";
+
+  const iconDiv = document.createElement("div");
+  iconDiv.style.cssText = "font-size: 2rem; margin-bottom: 0.5rem;";
+  iconDiv.textContent = "🎙️";
+
+  const titleDiv = document.createElement("div");
+  titleDiv.style.cssText = "font-weight: 600; color: var(--text-primary); margin-bottom: 0.25rem;";
+  titleDiv.textContent = "Línea Telefónica en Espera";
+
+  const subDiv = document.createElement("div");
+  subDiv.style.cssText = "font-size: 0.85rem;";
+  subDiv.textContent = "Esperando llamada en vivo vía WebRTC / LiveKit o prueba desde el micrófono.";
+
+  idleNotice.appendChild(iconDiv);
+  idleNotice.appendChild(titleDiv);
+  idleNotice.appendChild(subDiv);
+  container.appendChild(idleNotice);
 }
 
 function escapeHtml(str) {
@@ -480,6 +336,11 @@ function escapeHtml(str) {
 
 function appendStreamTurn(turn) {
   const container = document.getElementById("liveChatStream");
+  if (!container) return;
+  // Si está el mensaje de espera, limpiarlo al entrar el primer turno real
+  if (container.querySelector(".text-muted")) {
+    container.innerHTML = "";
+  }
   const bubble = document.createElement("div");
   bubble.className = `stream-bubble ${turn.role === "agent" ? "agent" : "customer"}`;
 
@@ -525,7 +386,7 @@ function initLiveVisualizer() {
         // Onda viva enérgica con armonías orgánicas
         height = Math.abs(Math.sin(step + i * 0.45)) * 26 + Math.cos(step * 0.8 + i) * 6 + 4;
       } else if (isCallActive) {
-        // Latido suave en reposo
+        // Latido suave en llamada activa
         height = Math.abs(Math.sin(step * 0.5 + i * 0.3)) * 6 + 3;
       }
 
@@ -556,26 +417,25 @@ function hangupActiveCall() {
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   if (callDurationTimer) clearInterval(callDurationTimer);
 
-  document.getElementById("typingText").innerText = "Llamada finalizada · Lead extraído y enviado a n8n";
+  document.getElementById("typingText").innerText = "Llamada finalizada · Sincronizada con Google Sheets";
   document.getElementById("liveCallBadge").innerText = "0 ACTIVAS";
   document.getElementById("liveCallBadge").classList.remove("live");
 
-  // Registrar llamada en el historial persistente
+  const nameVal = (document.getElementById("extLeadName") && document.getElementById("extLeadName").value) || "Cliente";
+  const phoneVal = (document.getElementById("extLeadPhone") && document.getElementById("extLeadPhone").value) || "";
   const completedCall = {
     id: `call-${Date.now().toString().slice(-4)}`,
     date: "Hoy, " + new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
-    client: document.getElementById("extLeadName").innerText || "Cliente Web",
-    phone: document.getElementById("extLeadPhone").innerText || "+352 691 452 890",
-    duration: document.getElementById("liveDurationTimer").innerText,
+    client: nameVal,
+    phone: phoneVal,
+    duration: document.getElementById("liveDurationTimer") ? document.getElementById("liveDurationTimer").innerText : "00:00",
     operator: "Sofía (IA)",
-    reason: document.getElementById("extLeadInterest").innerText,
-    hasLead: true,
+    reason: "Consulta directa",
+    hasLead: Boolean(nameVal),
     transcript: Array.from(document.querySelectorAll(".stream-bubble")).map(b => b.innerText).join("\n\n")
   };
   dataProvider.saveNewCall(completedCall);
   renderCallsTable();
-
-  alert("Llamada finalizada con éxito. Transcripción y lead archivados en el monitor del cliente.");
 }
 
 function copyLiveTranscript() {
@@ -587,63 +447,14 @@ function copyLiveTranscript() {
 }
 
 function contactViaWhatsApp() {
-  const phone = document.getElementById("extLeadPhone").innerText.replace(/[^0-9]/g, "");
-  const name = document.getElementById("extLeadName").innerText;
-  const msg = encodeURIComponent(`Hola ${name}, te contacto de WELUX Events sobre tu solicitud de cotización técnica.`);
+  const phone = (document.getElementById("extLeadPhone") && document.getElementById("extLeadPhone").value || "").replace(/[^0-9]/g, "");
+  const name = (document.getElementById("extLeadName") && document.getElementById("extLeadName").value) || "Cliente";
+  const msg = encodeURIComponent(`Hola ${name}, te contacto de WELUX Events.`);
   window.open(`https://wa.me/${phone || '352691452890'}?text=${msg}`, "_blank");
 }
 
 function scheduleDirectMeeting() {
   switchTab("agenda");
-}
-
-// ==============================================================================
-// 5. SIMULACIÓN DE LLAMADA FLUIDA (DEMO DE 990 €)
-// ==============================================================================
-
-function triggerIncomingCallDemo() {
-  switchTab("envivo");
-  const container = document.getElementById("liveChatStream");
-  container.innerHTML = "";
-  streamIndex = 0;
-  isCallActive = true;
-
-  document.getElementById("liveCallBadge").innerText = "1 ACTIVA";
-  document.getElementById("liveCallBadge").classList.add("live");
-  document.getElementById("liveDurationTimer").innerText = "00:00";
-  currentDurationSecs = 0;
-
-  if (callDurationTimer) clearInterval(callDurationTimer);
-  callDurationTimer = setInterval(() => {
-    currentDurationSecs++;
-    const m = String(Math.floor(currentDurationSecs / 60)).padStart(2, '0');
-    const s = String(currentDurationSecs % 60).padStart(2, '0');
-    document.getElementById("liveDurationTimer").innerText = `${m}:${s}`;
-  }, 1000);
-
-  playNextDemoTurn();
-}
-
-function playNextDemoTurn() {
-  if (streamIndex >= LIVE_CALL_SCRIPT.length) {
-    document.getElementById("typingText").innerText = "Conversación finalizada · Puedes colgar o agendar.";
-    return;
-  }
-
-  const turn = LIVE_CALL_SCRIPT[streamIndex];
-  appendStreamTurn(turn);
-  streamIndex++;
-
-  if (turn.role === "agent") {
-    // Sofía habla de forma natural; el siguiente turno espera que termine
-    speakSofia(turn.text, () => {
-      // Breve pausa para la respuesta del cliente
-      setTimeout(playNextDemoTurn, 1000);
-    });
-  } else {
-    // El cliente habla; pausa orgánica antes de la respuesta de Sofía
-    setTimeout(playNextDemoTurn, 1400);
-  }
 }
 
 // ==============================================================================
@@ -865,10 +676,48 @@ document.addEventListener("DOMContentLoaded", () => {
   checkSavedClientIdentity();
   startLiveLeadsSync();
 
-  const now = new Date();
-  const options = { day: 'numeric', month: 'short', year: 'numeric' };
-  document.getElementById("currentDateDisplay").innerText = now.toLocaleDateString('es-ES', options);
+  startLuxembourgClock();
 });
+
+function startLuxembourgClock() {
+  const display = document.getElementById("currentDateDisplay");
+  if (!display) return;
+  function update() {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('es-ES', { 
+      timeZone: 'Europe/Luxembourg', 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      second: '2-digit' 
+    });
+    const dateStr = now.toLocaleDateString('es-ES', { 
+      timeZone: 'Europe/Luxembourg', 
+      day: 'numeric', 
+      month: 'short', 
+      year: 'numeric' 
+    });
+    display.textContent = `${timeStr} CEST · ${dateStr}`;
+  }
+  update();
+  setInterval(update, 1000);
+}
+
+async function refreshAllRealData() {
+  const btn = document.getElementById("btnRefreshData");
+  if (btn) btn.disabled = true;
+  try {
+    cachedLeads = await dataProvider.getLeads();
+    await renderCallsTable();
+    await renderLeadsGrid();
+    renderCalendar();
+    renderAppointments();
+    if (typeof renderTwentyKanban === "function") {
+      await renderTwentyKanban();
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
 
 function checkSavedClientIdentity() {
   try {
@@ -1554,36 +1403,26 @@ function exportLeadsToCRM() {
 // 10. MÓDULO 4: AGENDA DE CITAS
 // ==============================================================================
 
-const APPOINTMENTS_DATA = [
-  {
-    title: "Reunión Técnica · Boda Sophie Laurent",
-    date: "18 Oct 2026",
-    time: "16:30 - 17:15",
-    type: "Reunión Técnica",
-    description: "Inspección de iluminación y acústica para Château de Septfontaines."
-  },
-  {
-    title: "Presentación Módulos LED · Bertrange",
-    date: "22 Oct 2026",
-    time: "11:00 - 12:00",
-    type: "Reunión Comercial",
-    description: "Marc Becker: Definición de pantalla LED para lanzamiento automotriz."
-  },
-  {
-    title: "Prueba de Sonido Line Array · Kirchberg",
-    date: "28 Oct 2026",
-    time: "14:00 - 15:30",
-    type: "Prueba en Recinto",
-    description: "Jean-Luc Weber: Verificación de acústica para gala fin de año."
-  },
-  {
-    title: "Entrega de Equipos · Festival Dudelange",
-    date: "12 Nov 2026",
-    time: "09:30 - 10:30",
-    type: "Montaje & Entrega",
-    description: "Claire Muller: 4 altavoces activos y mesa de mezclas para fin de semana."
+let APPOINTMENTS_DATA = [];
+
+function getAppointmentsFromLeads() {
+  if (APPOINTMENTS_DATA.length > 0) return APPOINTMENTS_DATA;
+  const list = [];
+  if (Array.isArray(cachedLeads)) {
+    cachedLeads.forEach(lead => {
+      if (lead.eventDate && lead.eventDate !== "A convenir" && lead.eventDate !== "No indicado") {
+        list.push({
+          title: `${lead.interest || 'Servicio'} · ${lead.name || 'Cliente'}`,
+          date: lead.eventDate,
+          time: "10:00 - 11:00",
+          type: lead.stage === "agendado" ? "Cita Confirmada" : "Evento Prospectado",
+          description: `${lead.company ? lead.company + ' · ' : ''}${lead.summary || 'Registro en Google Sheets'}`
+        });
+      }
+    });
   }
-];
+  return list;
+}
 
 function renderCalendar() {
   const grid = document.getElementById("calendarDaysGrid") || document.getElementById("calendarGrid");
@@ -1609,27 +1448,22 @@ function renderCalendar() {
     numSpan.textContent = String(day);
     dayCell.appendChild(numSpan);
 
-    if ([18, 22, 28].includes(day)) {
-      dayCell.classList.add("has-event");
-      const dot = document.createElement("span");
-      dot.className = "cal-event-dot";
-      dayCell.appendChild(dot);
-    }
-
     grid.appendChild(dayCell);
   }
 }
 
 function renderAppointments() {
   const container = document.getElementById("appointmentsList");
+  if (!container) return;
   container.innerHTML = "";
 
-  if (APPOINTMENTS_DATA.length === 0) {
-    container.appendChild(createEmptyStateElement("📅", "Agenda despejada", "No hay citas programadas para el período actual."));
+  const items = getAppointmentsFromLeads();
+  if (items.length === 0) {
+    container.appendChild(createEmptyStateElement("📅", "Agenda despejada", "No hay citas programadas actualmente. Agéndalas desde los leads de Google Sheets."));
     return;
   }
 
-  APPOINTMENTS_DATA.forEach(app => {
+  items.forEach(app => {
     const card = document.createElement("div");
     card.className = "appointment-item";
 
@@ -1637,10 +1471,10 @@ function renderAppointments() {
     dateBox.className = "app-date-box";
     const daySpan = document.createElement("span");
     daySpan.className = "app-day";
-    daySpan.textContent = (app.date || "").split(" ")[0] || "";
+    daySpan.textContent = (app.date || "").split(" ")[0] || "1";
     const monthSpan = document.createElement("span");
     monthSpan.className = "app-month";
-    monthSpan.textContent = (app.date || "").split(" ")[1] || "";
+    monthSpan.textContent = (app.date || "").split(" ")[1] || "Oct";
     dateBox.appendChild(daySpan);
     dateBox.appendChild(monthSpan);
 
