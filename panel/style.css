@@ -475,6 +475,49 @@ code { font-family: var(--font-mono); font-size: 0.86em; }
 .waveform-box canvas { display: block; }
 
 .live-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 20px; align-items: start; }
+.live-grid.mode-client { grid-template-columns: 1fr; }
+.live-grid.mode-client .lead-card { display: none; }
+.live-grid.mode-internal { grid-template-columns: 1fr; }
+.live-grid.mode-internal .stream-card { display: none; }
+
+/* v1.2: Pantalla Dual en «Llamada en Vivo» */
+.dual-screen-selector {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: var(--sp-4); flex-wrap: wrap;
+}
+.dual-mode-toggles { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dual-live-indicator {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700;
+  color: var(--green); background: rgba(16,185,129,0.09);
+  border: 1px solid rgba(16,185,129,0.28);
+  padding: 6px 14px; border-radius: 99px;
+}
+.operator-edit-input {
+  background: var(--bg-inset); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 0.82rem;
+  width: 100%; outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+  font-family: inherit;
+}
+.operator-edit-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139,92,246,0.18); }
+.operator-notes-textarea {
+  background: var(--bg-inset); border: 1px solid var(--border);
+  border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: 0.8rem;
+  width: 100%; min-height: 56px; resize: vertical; outline: none; font-family: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s; line-height: 1.5;
+}
+.operator-notes-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139,92,246,0.18); }
+.btn-transfer {
+  background: linear-gradient(135deg, rgba(245,158,11,0.22), rgba(245,158,11,0.08));
+  border: 1px solid rgba(245,158,11,0.45); color: #fcd34d;
+  font-size: 0.76rem; font-weight: 700; border-radius: 9px; padding: 8px 14px;
+  display: inline-flex; align-items: center; gap: 7px;
+  transition: all 0.2s var(--ease);
+}
+.btn-transfer:hover {
+  background: rgba(245,158,11,0.32); color: #fff;
+  transform: translateY(-2px); box-shadow: 0 6px 16px rgba(245,158,11,0.25);
+}
 
 /* ---- Transcripción ---- */
 .stream-card { display: flex; flex-direction: column; }

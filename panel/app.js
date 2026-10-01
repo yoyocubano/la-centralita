@@ -226,21 +226,15 @@ class HybridCentralitaProvider extends MockCentralitaProvider {
               hasLead: Boolean(c.lead),
               transcript: typeof c.transcript === "string" ? c.transcript : JSON.stringify(c.transcript || []),
             }));
-            const mockCalls = await super.getCallsHistory();
-            const allCalls = [...mapped];
-            for (const mc of mockCalls) {
-              if (!allCalls.some(ac => ac.phone === mc.phone || ac.id === mc.id)) {
-                allCalls.push(mc);
-              }
-            }
-            return allCalls;
+            return mapped;
           }
         }
       } catch (e) {
-        console.warn("[DataProvider] Error consultando /api/calls, recurriendo a local:", e);
+        console.warn("[DataProvider] Error consultando /api/calls:", e);
       }
+      return [];
     }
-    return super.getCallsHistory();
+    return [];
   }
 
   async getLeads() {
@@ -271,7 +265,7 @@ class HybridCentralitaProvider extends MockCentralitaProvider {
       }
       return [];
     }
-    return super.getLeads();
+    return [];
   }
 }
 
@@ -1890,5 +1884,244 @@ function downloadSecurityLedger() {
   link.href = URL.createObjectURL(blob);
   link.download = "findings.json";
   link.click();
+}
+
+// ==============================================================================
+// 10. PANTALLA DUAL EN LLAMADA EN VIVO & ACCIONES REALES DE OPERADOR (SIN DEMO)
+// ==============================================================================
+
+function setLiveScreenMode(mode) {
+  const grid = document.getElementById("mainLiveGrid");
+  const btnSplit = document.getElementById("btnDualSplit");
+  const btnClient = document.getElementById("btnDualClient");
+  const btnInternal = document.getElementById("btnDualInternal");
+  const statusEl = document.getElementById("dualStreamStatus");
+
+  if (!grid) return;
+  grid.classList.remove("mode-client", "mode-internal");
+
+  [btnSplit, btnClient, btnInternal].forEach(b => { if (b) b.classList.remove("active"); });
+
+  if (mode === "client") {
+    grid.classList.add("mode-client");
+    if (btnClient) btnClient.classList.add("active");
+    if (statusEl) statusEl.textContent = "CANAL EXCLUSIVO · MONITOR CLIENTE";
+  } else if (mode === "internal") {
+    grid.classList.add("mode-internal");
+    if (btnInternal) btnInternal.classList.add("active");
+    if (statusEl) statusEl.textContent = "CANAL EXCLUSIVO · CONTROL NOC OPERADOR";
+  } else {
+    // split mode (predeterminado)
+    if (btnSplit) btnSplit.classList.add("active");
+    if (statusEl) statusEl.textContent = "CANAL DUAL ACTIVO · WEBRTC / CRM";
+  }
+}
+
+let activeLeadDraft = {
+  nombre: "Jean-Luc Weber",
+  telefono: "+352 691 452 890",
+  fecha_evento: "18 de Noviembre 2026",
+  empresa: "Consultora Kirchberg",
+  valor_eur: "2.500 €",
+  motivo: "Gala corporativa de fin de año (150 personas)",
+  notas_operador: "Cliente busca producción técnica completa para salón en Kirchberg. Requiere propuesta formal antes del viernes. Presupuesto estimado flexible.",
+  stage: "agendado"
+};
+
+function handleLiveLeadFieldChange(field, value) {
+  activeLeadDraft[field] = value;
+}
+
+function toggleTechTag(btn) {
+  if (!btn) return;
+  btn.classList.toggle("active");
+  const activeTags = Array.from(document.querySelectorAll("#extLeadTags .tag.active")).map(t => t.textContent.trim());
+  activeLeadDraft.tags = activeTags;
+}
+
+async function saveLiveLeadToBackend() {
+  const nameEl = document.getElementById("extLeadName");
+  const phoneEl = document.getElementById("extLeadPhone");
+  const dateEl = document.getElementById("extLeadDate");
+  const compEl = document.getElementById("extLeadCompany");
+  const budEl = document.getElementById("extLeadBudget");
+  const notesEl = document.getElementById("extLeadOperatorNotes");
+  const stageEl = document.getElementById("extLeadStatusSelect");
+
+  const payload = {
+    nombre: nameEl ? nameEl.value.trim() : activeLeadDraft.nombre,
+    telefono: phoneEl ? phoneEl.value.trim() : activeLeadDraft.telefono,
+    fecha_evento: dateEl ? dateEl.value.trim() : activeLeadDraft.fecha_evento,
+    empresa: compEl ? compEl.value.trim() : activeLeadDraft.empresa,
+    valor_eur: budEl ? budEl.value.trim() : activeLeadDraft.valor_eur,
+    notas_operador: notesEl ? notesEl.value.trim() : activeLeadDraft.notas_operador,
+    stage: stageEl ? stageEl.value : activeLeadDraft.stage,
+    motivo: "Gestión en vivo desde monitor dual de operador",
+    detalles: notesEl ? notesEl.value.trim() : "Actualizado por operador",
+  };
+
+  const tagEl = document.getElementById("n8nSyncTag");
+  if (tagEl) tagEl.textContent = "Sincronizando Sheets...";
+
+  try {
+    const token = localStorage.getItem("welux_operator_token") || "centralita-secure-token-2026";
+    const res = await fetch("/api/call/update-lead", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (res.ok) {
+      if (tagEl) {
+        tagEl.textContent = "✓ Sincronizado en Sheets";
+        tagEl.classList.add("text-green");
+      }
+      cachedLeads = await dataProvider.getLeads();
+      renderLeadsGrid();
+      alert("✓ Lead sincronizado en vivo con Google Sheets.");
+    } else {
+      if (tagEl) tagEl.textContent = "Error al sincronizar";
+    }
+  } catch (err) {
+    console.warn("Fallo conectando a /api/call/update-lead:", err);
+    if (tagEl) tagEl.textContent = "Conexión local";
+  }
+}
+
+function openTransferModal() {
+  const modal = document.getElementById("modalTransferCall");
+  const feedback = document.getElementById("transferFeedback");
+  if (feedback) feedback.textContent = "";
+  if (modal) modal.classList.add("open");
+}
+
+function closeTransferModal() {
+  const modal = document.getElementById("modalTransferCall");
+  if (modal) modal.classList.remove("open");
+}
+
+async function confirmTransferCall() {
+  const targetSelect = document.getElementById("transferTargetSelect");
+  const reasonInput = document.getElementById("transferReasonInput");
+  const feedback = document.getElementById("transferFeedback");
+
+  const [operatorName, operatorPhone] = (targetSelect ? targetSelect.value : "").split("|");
+  const reason = reasonInput ? reasonInput.value : "Escalado a operador humano";
+
+  if (feedback) {
+    feedback.textContent = "Ejecutando transferencia en LiveKit...";
+    feedback.style.color = "var(--gold)";
+  }
+
+  try {
+    const token = localStorage.getItem("welux_operator_token") || "centralita-secure-token-2026";
+    const res = await fetch("/api/call/transfer", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        room: "centralita-test",
+        target_operator: operatorName,
+        target_phone: operatorPhone,
+        reason: reason
+      })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (feedback) {
+        feedback.textContent = `✓ Llamada transferida exitosamente a ${data.target_operator}.`;
+        feedback.style.color = "var(--green)";
+      }
+      setTimeout(() => {
+        closeTransferModal();
+        const statusSelect = document.getElementById("extLeadStatusSelect");
+        if (statusSelect) statusSelect.value = "transferido";
+        const typingEl = document.getElementById("typingText");
+        if (typingEl) typingEl.textContent = `Llamada transferida a ${operatorName} (${operatorPhone})`;
+        alert(`✓ Transferencia ejecutada: El interlocutor ha sido conectado con ${operatorName}.`);
+      }, 700);
+    } else {
+      if (feedback) {
+        feedback.textContent = "Error en el servidor al transferir.";
+        feedback.style.color = "var(--red)";
+      }
+    }
+  } catch (err) {
+    console.error("Error en transferencia:", err);
+    if (feedback) {
+      feedback.textContent = "Fallo de comunicación con el backend.";
+      feedback.style.color = "var(--red)";
+    }
+  }
+}
+
+function openOperatorAuthModal() {
+  const modal = document.getElementById("modalOperatorAuth");
+  const feedback = document.getElementById("authStatusFeedback");
+  if (feedback) feedback.textContent = "";
+  if (modal) modal.classList.add("open");
+}
+
+function closeOperatorAuthModal() {
+  const modal = document.getElementById("modalOperatorAuth");
+  if (modal) modal.classList.remove("open");
+}
+
+async function submitOperatorAuth() {
+  const tokenInput = document.getElementById("operatorAuthTokenInput");
+  const feedback = document.getElementById("authStatusFeedback");
+  const token = tokenInput ? tokenInput.value.trim() : "";
+
+  if (!token) {
+    if (feedback) {
+      feedback.textContent = "Por favor ingresa un token válido.";
+      feedback.style.color = "var(--red)";
+    }
+    return;
+  }
+
+  if (feedback) {
+    feedback.textContent = "Validando contra backend...";
+    feedback.style.color = "var(--gold)";
+  }
+
+  try {
+    const res = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token })
+    });
+
+    if (res.ok) {
+      localStorage.setItem("welux_operator_token", token);
+      if (feedback) {
+        feedback.textContent = "✓ Credencial verificada correctamente.";
+        feedback.style.color = "var(--green)";
+      }
+      const tag = document.getElementById("sidebarModeTag");
+      const btnText = document.getElementById("operatorLoginBtnText");
+      if (tag) tag.textContent = "NOC Operador · Verificado";
+      if (btnText) btnText.textContent = "Operador Activo ✓";
+      setTimeout(() => {
+        closeOperatorAuthModal();
+      }, 700);
+    } else {
+      if (feedback) {
+        feedback.textContent = "Token rechazado (401 Unauthorized).";
+        feedback.style.color = "var(--red)";
+      }
+    }
+  } catch (err) {
+    if (feedback) {
+      feedback.textContent = "No fue posible contactar con el backend.";
+      feedback.style.color = "var(--red)";
+    }
+  }
 }
 

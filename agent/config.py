@@ -37,6 +37,10 @@ class Config:
     PORT = int(os.getenv("PORT", "8080"))
     HOST = os.getenv("HOST", "0.0.0.0")
 
+    # WhatsApp Business API (YCloud BSP)
+    YCLOUD_API_KEY = os.getenv("YCLOUD_API_KEY", "")
+    WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "welux-centralita-whatsapp-2026")
+
     @classmethod
     def validate(cls, raise_on_missing=False) -> dict[str, bool]:
         """Check status of required environment variables."""

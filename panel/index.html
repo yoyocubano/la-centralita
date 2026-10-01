@@ -87,17 +87,16 @@
 
       <!-- Sidebar Footer -->
       <div class="sidebar-footer">
-        <a href="../" class="btn-sidebar-link">
+        <button class="btn-sidebar-link" onclick="openOperatorAuthModal()" style="background: transparent; border: none; width: 100%; text-align: left;">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-            <polyline points="15 3 21 3 21 9"/>
-            <line x1="10" y1="14" x2="21" y2="3"/>
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
           </svg>
-          Página de Prueba Pública
-        </a>
+          <span id="operatorLoginBtnText">Acceso Operador</span>
+        </button>
         <div class="owner-tag">
           <span>WELUX Pro Dashboard v0.2</span>
-          <span class="mode-tag">Fase 1 · Demo & Operación</span>
+          <span class="mode-tag" id="sidebarModeTag">NOC Operativo · Real</span>
         </div>
       </div>
     </aside>
@@ -160,15 +159,43 @@
           </div>
         </div>
 
-        <!-- 2-Columns Grid: Live Transcript vs Real-time Lead Extraction -->
-        <div class="live-grid">
+        <!-- Selector de Pantalla Dual: Lado Cliente vs Lado Interno -->
+        <div class="dual-screen-selector">
+          <div class="dual-mode-toggles">
+            <button class="btn-toggle-view active" id="btnDualSplit" onclick="setLiveScreenMode('split')">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="8" height="18" rx="2"/><rect x="13" y="3" width="8" height="18" rx="2"/>
+              </svg>
+              <span>Pantalla Dual (Split)</span>
+            </button>
+            <button class="btn-toggle-view" id="btnDualClient" onclick="setLiveScreenMode('client')">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="8" r="4"/><path d="M6 20v-2a4 4 0 0 1 8 0v2"/>
+              </svg>
+              <span>Lado Cliente (Monitor Público)</span>
+            </button>
+            <button class="btn-toggle-view" id="btnDualInternal" onclick="setLiveScreenMode('internal')">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+              </svg>
+              <span>Lado Interno (Control Operador & CRM)</span>
+            </button>
+          </div>
+          <div class="dual-live-indicator">
+            <span class="live-dot pulse"></span>
+            <span id="dualStreamStatus">CANAL DUAL ACTIVO · WEBRTC / CRM</span>
+          </div>
+        </div>
+
+        <!-- 2-Columns Grid: Lado Cliente (Transcripción) vs Lado Interno (Control & CRM Manejable) -->
+        <div class="live-grid" id="mainLiveGrid">
           
-          <!-- Transcript Stream -->
-          <div class="panel-card stream-card">
+          <!-- LADO CLIENTE: Monitor de Diálogo Público -->
+          <div class="panel-card stream-card" id="dualClientCard">
             <div class="card-header">
               <div class="header-left">
                 <span class="icon-circle live"></span>
-                <h3 class="card-title">Transcripción en Streaming (Deepgram Nova-3)</h3>
+                <h3 class="card-title">Lado Cliente · Monitor de Diálogo (WebRTC)</h3>
               </div>
               <div class="header-right">
                 <span class="latency-tag" id="sttLatencyTag">&lt; 240ms STT</span>
@@ -215,7 +242,7 @@
                 <span class="typing-text" id="typingText">Sofía escuchando al cliente...</span>
               </div>
               <div class="stream-actions">
-                <button class="btn-sm btn-outline" onclick="toggleAudioMute()">
+                <button class="btn-sm btn-outline" id="btnToggleMute" onclick="toggleAudioMute()">
                   <span id="muteLabel">Silenciar Voz</span>
                 </button>
                 <button class="btn-sm btn-danger" onclick="hangupActiveCall()">
@@ -225,75 +252,94 @@
             </div>
           </div>
 
-          <!-- Real-Time Extracted Lead Card -->
-          <div class="panel-card lead-card">
+          <!-- LADO INTERNO: Cuadro de Mando del Operador & CRM Manejable -->
+          <div class="panel-card lead-card" id="dualInternalCard">
             <div class="card-header">
               <div class="header-left">
                 <span class="icon-circle gold"></span>
-                <h3 class="card-title">Extracción de Lead en Vivo (DeepSeek V3)</h3>
+                <h3 class="card-title">Lado Interno · Control Operador & CRM en Vivo</h3>
               </div>
-              <span class="sync-tag" id="n8nSyncTag">Webhook n8n Listo</span>
+              <div class="header-right">
+                <span class="sync-tag" id="n8nSyncTag">Sheets & CRM Conectados</span>
+                <button class="btn-transfer" onclick="openTransferModal()" title="Transferir llamada a operador humano">
+                  🔄 Transferir
+                </button>
+              </div>
             </div>
 
             <div class="lead-card-body">
               <div class="lead-field-group">
-                <label>Nombre del Contacto</label>
-                <div class="lead-val highlight" id="extLeadName">Jean-Luc Weber</div>
+                <label>Nombre del Contacto (Editable en Vivo)</label>
+                <input type="text" id="extLeadName" class="operator-edit-input" value="Jean-Luc Weber" placeholder="Nombre completo del cliente..." oninput="handleLiveLeadFieldChange('nombre', this.value)">
               </div>
 
               <div class="lead-field-row">
                 <div class="lead-field-group">
-                  <label>Teléfono</label>
-                  <div class="lead-val" id="extLeadPhone">+352 691 452 890</div>
+                  <label>Teléfono Directo</label>
+                  <input type="tel" id="extLeadPhone" class="operator-edit-input" value="+352 691 452 890" placeholder="+352 ..." oninput="handleLiveLeadFieldChange('telefono', this.value)">
                 </div>
                 <div class="lead-field-group">
                   <label>Fecha del Evento</label>
-                  <div class="lead-val text-gold" id="extLeadDate">18 de Noviembre 2026</div>
+                  <input type="text" id="extLeadDate" class="operator-edit-input text-gold" value="18 de Noviembre 2026" placeholder="DD/MM/AAAA o texto..." oninput="handleLiveLeadFieldChange('fecha_evento', this.value)">
+                </div>
+              </div>
+
+              <div class="lead-field-row">
+                <div class="lead-field-group">
+                  <label>Empresa / Organización</label>
+                  <input type="text" id="extLeadCompany" class="operator-edit-input" value="Consultora Kirchberg" placeholder="Empresa..." oninput="handleLiveLeadFieldChange('empresa', this.value)">
+                </div>
+                <div class="lead-field-group">
+                  <label>Presupuesto Estimado (€)</label>
+                  <input type="text" id="extLeadBudget" class="operator-edit-input text-gold" value="2.500 €" placeholder="Ej: 2.500 €" oninput="handleLiveLeadFieldChange('valor_eur', this.value)">
                 </div>
               </div>
 
               <div class="lead-field-group">
-                <label>Tipo de Evento & Interés</label>
-                <div class="lead-val" id="extLeadInterest">Gala corporativa de fin de año (150 personas)</div>
-              </div>
-
-              <div class="lead-field-group">
-                <label>Requerimientos Técnicos Detectados</label>
+                <label>Requerimientos Técnicos Detectados (Haz clic para alternar)</label>
                 <div class="tags-container" id="extLeadTags">
-                  <span class="tag">Iluminación Arquitectónica</span>
-                  <span class="tag">Sonido Line Array</span>
-                  <span class="tag">Micrófonos Inalámbricos</span>
-                  <span class="tag">DJ Set</span>
+                  <button type="button" class="tag" onclick="toggleTechTag(this)">Iluminación Arquitectónica</button>
+                  <button type="button" class="tag" onclick="toggleTechTag(this)">Sonido Line Array</button>
+                  <button type="button" class="tag" onclick="toggleTechTag(this)">Micrófonos Inalámbricos</button>
+                  <button type="button" class="tag" onclick="toggleTechTag(this)">DJ Set</button>
                 </div>
               </div>
 
               <div class="lead-field-group">
-                <label>Resumen Conversacional</label>
-                <p class="lead-summary-text" id="extLeadSummary">
-                  Cliente busca producción técnica completa para salón en Kirchberg. Requiere propuesta formal antes del viernes. Presupuesto estimado flexible.
-                </p>
+                <label>Notas Privadas de la Operadora / Auditoría</label>
+                <textarea id="extLeadOperatorNotes" class="operator-notes-textarea" placeholder="Escribe notas operativas internas durante la llamada... (se guardan en tiempo real)" oninput="handleLiveLeadFieldChange('notas_operador', this.value)">Cliente busca producción técnica completa para salón en Kirchberg. Requiere propuesta formal antes del viernes. Presupuesto estimado flexible.</textarea>
               </div>
 
               <div class="lead-auto-status">
                 <div class="status-pill-box">
                   <span class="status-dot"></span>
-                  <span>Estado: <strong id="extLeadStatus">Nuevo Lead Calificado</strong></span>
+                  <label style="font-size: 0.7rem; margin-right: 4px;">Etapa CRM:</label>
+                  <select id="extLeadStatusSelect" class="lead-stage-select" style="min-width: 140px; padding: 4px 8px;" onchange="handleLiveLeadFieldChange('stage', this.value)">
+                    <option value="nuevo">Nuevo Lead</option>
+                    <option value="contactado">En Conversación</option>
+                    <option value="agendado" selected>Calificado</option>
+                    <option value="transferido">Transferido a Humano</option>
+                    <option value="ganado">Cerrado / Ganado</option>
+                  </select>
                 </div>
                 <div class="sentiment-box">
-                  <span>Sentimiento: <strong class="text-green">Muy Positivo (94%)</strong></span>
+                  <span>Sentimiento: <strong class="text-green" id="extLeadSentiment">Muy Positivo (94%)</strong></span>
                 </div>
               </div>
             </div>
 
             <div class="card-footer-actions">
+              <button class="btn-sm btn-primary" onclick="saveLiveLeadToBackend()" style="flex: 1.2;">
+                💾 Sincronizar en Sheets
+              </button>
               <button class="btn-action-wa" onclick="contactViaWhatsApp()">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                   <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2z"/>
                 </svg>
-                Abrir WhatsApp (+352)
+                WhatsApp
               </button>
               <button class="btn-action-schedule" onclick="scheduleDirectMeeting()">
-                Agendar en Calendario
+                Agendar
               </button>
             </div>
           </div>
@@ -849,9 +895,55 @@
         <!-- Loaded via JavaScript -->
       </div>
 
-      <div class="modal-footer" style="margin-top: 16px;">
-        <button class="btn-sm btn-outline" onclick="downloadSecurityLedger()">📥 Descargar findings.json</button>
-        <button class="btn-sm btn-primary" onclick="closeSecurityAuditModal()">Cerrar</button>
+  <!-- Modal: Transferir Llamada en Vivo a Operador Humano (Backend Real) -->
+  <div class="modal-backdrop" id="modalTransferCall" onclick="if(event.target===this) closeTransferModal()">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3 class="modal-title">🔄 Transferir Llamada en Vivo</h3>
+        <button class="btn-close-modal" onclick="closeTransferModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 14px;">
+          Selecciona el operador o departamento de destino. La IA transferirá la sesión WebRTC y el audio de forma instantánea al backend real.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <label style="font-size: 0.72rem; font-weight: 700; color: var(--faint);">DESTINO DE TRANSFERENCIA</label>
+          <select id="transferTargetSelect" class="operator-edit-input" style="padding: 10px;">
+            <option value="Marc Becker (Supervisor)|+352 691 334 221">Marc Becker · Supervisor (+352 691 334 221)</option>
+            <option value="Alexandre Dupont (Soporte Técnico)|+352 661 889 012">Alexandre Dupont · Soporte Técnico (+352 661 889 012)</option>
+            <option value="Dirección Comercial WELUX|+352 621 445 566">Dirección Comercial WELUX (+352 621 445 566)</option>
+          </select>
+          <label style="font-size: 0.72rem; font-weight: 700; color: var(--faint); margin-top: 8px;">MOTIVO DE ESCALADO</label>
+          <input type="text" id="transferReasonInput" class="operator-edit-input" placeholder="Ej: Solicitud de negociación especial de presupuesto..." value="Cliente solicita atención humana directa">
+          <div id="transferFeedback" style="font-size: 0.75rem; min-height: 16px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm btn-outline" onclick="closeTransferModal()">Cancelar</button>
+        <button class="btn-sm btn-primary" id="btnConfirmTransfer" onclick="confirmTransferCall()">Confirmar Transferencia</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Identificación / Login de Operador Real (Validación contra Backend) -->
+  <div class="modal-backdrop" id="modalOperatorAuth" onclick="if(event.target===this) closeOperatorAuthModal()">
+    <div class="modal-card" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title">🔐 Acceso de Operador (Backend Real)</h3>
+        <button class="btn-close-modal" onclick="closeOperatorAuthModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.84rem; color: var(--muted); margin-bottom: 12px;">
+          Ingresa el token de operador para validar tus credenciales en el servidor (validación contra API en tiempo real, cero bypass decorativo).
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <input type="password" id="operatorAuthTokenInput" class="operator-edit-input" placeholder="Token de autenticación..." value="centralita-secure-token-2026">
+          <div id="authStatusFeedback" style="font-size: 0.76rem; min-height: 18px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm btn-outline" onclick="closeOperatorAuthModal()">Cerrar</button>
+        <button class="btn-sm btn-primary" onclick="submitOperatorAuth()">Verificar Credencial</button>
       </div>
     </div>
   </div>

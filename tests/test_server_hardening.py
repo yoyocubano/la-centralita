@@ -80,3 +80,92 @@ def test_structured_json_logger_formatter():
     assert "Operación completada exitosamente" in parsed["message"]
     assert parsed["test_metric"] == 42
     assert "timestamp" in parsed
+
+
+def test_call_transfer_and_hangup_endpoints():
+    """Verifica endpoints de transferencia y finalización de llamada."""
+    headers = {"Authorization": "Bearer centralita-secure-token-2026"}
+    
+    # 1. Transferencia
+    transfer_res = client.post(
+        "/api/call/transfer",
+        headers=headers,
+        json={
+            "room": "centralita-test",
+            "target_operator": "Marc Becker (Supervisor)",
+            "target_phone": "+352 691 334 221",
+            "reason": "Escalado técnico"
+        }
+    )
+    assert transfer_res.status_code == 200
+    assert transfer_res.json()["status"] == "transferred"
+    assert transfer_res.json()["target_operator"] == "Marc Becker (Supervisor)"
+
+    # 2. Finalización
+    hangup_res = client.post(
+        "/api/call/hangup",
+        headers=headers,
+        json={"room": "centralita-test", "reason": "Terminada por operador"}
+    )
+    assert hangup_res.status_code == 200
+    assert hangup_res.json()["status"] == "terminated"
+
+
+def test_auth_verify_endpoint():
+    """Verifica endpoint de autenticación real contra token autorizado."""
+    # Token correcto
+    res_ok = client.post("/api/auth/verify", json={"token": "centralita-secure-token-2026"})
+    assert res_ok.status_code == 200
+    assert res_ok.json()["authenticated"] is True
+
+    # Token incorrecto
+    res_fail = client.post("/api/auth/verify", json={"token": "token-invalido-123"})
+    assert res_fail.status_code == 401
+
+
+def test_ycloud_whatsapp_webhook_verification_and_event():
+    """Verifica handshake y recepción de mensajes/notas de voz de YCloud WhatsApp Business API."""
+    # 1. Challenge verification
+    verify_res = client.get(
+        "/api/whatsapp/webhook?hub.mode=subscribe&hub.challenge=test_challenge_1234&hub.verify_token=welux-centralita-whatsapp-2026"
+    )
+    assert verify_res.status_code == 200
+    assert verify_res.text == "test_challenge_1234"
+
+    # 2. Inbound text message
+    inbound_res = client.post(
+        "/api/whatsapp/webhook",
+        json={
+            "id": "evt_wa_101",
+            "type": "whatsapp.inbound_message",
+            "whatsappMessage": {
+                "id": "wamid_123",
+                "from": "+352691452890",
+                "to": "+352621999888",
+                "type": "text",
+                "text": {"body": "Hola, necesito información de fotoespejo"},
+            }
+        }
+    )
+    assert inbound_res.status_code == 200
+    assert inbound_res.json()["status"] == "received"
+    assert inbound_res.json()["sender"] == "+352691452890"
+
+    # 3. Inbound voice note
+    voice_res = client.post(
+        "/api/whatsapp/webhook",
+        json={
+            "id": "evt_wa_102",
+            "type": "whatsapp.inbound_message",
+            "whatsappMessage": {
+                "id": "wamid_124",
+                "from": "+352691452890",
+                "to": "+352621999888",
+                "type": "audio",
+                "audio": {"id": "media_voice_001", "link": "https://api.ycloud.com/v2/media/1"},
+            }
+        }
+    )
+    assert voice_res.status_code == 200
+    assert voice_res.json()["is_voice"] is True
+
