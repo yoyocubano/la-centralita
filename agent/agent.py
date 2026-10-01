@@ -21,9 +21,14 @@ from livekit import agents
 from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
 from livekit.plugins import deepgram, openai, silero
 
-from prompts import SYSTEM_PROMPT
-from piper_tts import PiperTTS
-from lead_extract import extract_lead
+try:
+    from prompts import SYSTEM_PROMPT
+    from piper_tts import PiperTTS
+    from lead_extract import extract_lead
+except ImportError:
+    from .prompts import SYSTEM_PROMPT
+    from .piper_tts import PiperTTS
+    from .lead_extract import extract_lead
 
 load_dotenv()
 logger = logging.getLogger("centralita")
@@ -65,20 +70,21 @@ async def post_to_n8n(payload: dict) -> None:
 
 
 def transcript_to_text(session: AgentSession) -> str:
-    """Serializa el historial de la sesión a texto.
-
-    NOTA (Antigravity): verificar la forma exacta de `session.history`
-    contra la versión instalada de livekit-agents y ajustar si hace falta.
-    """
+    """Serializa el historial de la sesión a texto legible."""
     lines: list[str] = []
     for item in session.history.items:
         role = getattr(item, "role", "?")
-        content = getattr(item, "content", "")
-        if isinstance(content, list):
-            content = " ".join(
-                getattr(part, "text", str(part)) for part in content
-            )
-        lines.append(f"{role}: {content}")
+        text = getattr(item, "text_content", None)
+        if text is None:
+            content = getattr(item, "content", "")
+            if isinstance(content, list):
+                text = " ".join(
+                    getattr(part, "text", str(part)) for part in content if part
+                )
+            else:
+                text = str(content)
+        if text and text.strip():
+            lines.append(f"{role}: {text.strip()}")
     return "\n".join(lines)
 
 

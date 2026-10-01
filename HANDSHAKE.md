@@ -46,17 +46,17 @@ la llamada se transcribe en tiempo real → al colgar se extrae el lead
 
 | Pieza | Servicio | Estado |
 |---|---|---|
-| Transporte WebRTC | LiveKit Cloud (Build, gratis) | 🟡 cuenta en creación |
-| STT | Deepgram Nova-3 | 🟡 cuenta en creación |
-| LLM | DeepSeek (cliente OpenAI-compatible) | 🟡 cuenta en creación |
-| TTS | Piper (local, open source, $0) | 🟡 adapter por verificar |
-| Post-llamada | n8n webhook | ✅ `https://weluxdigitalservices.app.n8n.cloud/webhook/centralita-test` |
-| Canal de prueba | Página web WebRTC (sin número) | 🟡 scaffold listo |
+| Transporte WebRTC | LiveKit Cloud (Build, gratis) | 🟡 enlace enviado a info@weluxevents.com |
+| STT | Deepgram Nova-3 | 🟡 cuenta en creación (bloqueo por reCAPTCHA) |
+| LLM | DeepSeek (cliente OpenAI-compatible) | 🟡 cuenta en creación (esperando credencial/código) |
+| TTS | Piper (local, open source, $0) | ✅ RESUELTO (2026-10-01) adapter verificado en livekit-agents 1.8.3 |
+| Post-llamada | n8n webhook | ✅ `https://weluxdigitalservices.app.n8n.cloud/webhook/centralita-test` (HTTP 200 verificado) |
+| Canal de prueba | Página web GitHub Pages (sin número) | ✅ https://yoyocubano.github.io/la-centralita/ |
 
 ## 4. Tablero Fase 1 — criterio de salida
 
 - [ ] Cuentas trial creadas (LiveKit, Deepgram, DeepSeek)
-- [ ] Adapter Piper TTS verificado contra la versión instalada de `livekit-agents`
+- [x] Adapter Piper TTS verificado contra la versión instalada de `livekit-agents`
 - [ ] Agente conversa por WebRTC en la página de prueba
 - [ ] Latencia percibida < 1 s (medir y anotar aquí)
 - [ ] Transcripción + lead extraído al colgar → POST a n8n verificado en el workflow
@@ -67,17 +67,28 @@ la llamada se transcribe en tiempo real → al colgar se extrae el lead
 ## 5. Mapa del repo
 
 - `HANDSHAKE.md` — este archivo (leer primero, actualizar siempre)
+- `index.html` — landing page interactiva y simulador para GitHub Pages
 - `agent/agent.py` — worker de LiveKit Agents (STT → LLM → TTS + envío a n8n)
 - `agent/prompts.py` — guion del agente de voz
-- `agent/piper_tts.py` — adapter TTS Piper (verificar contra SDK instalado)
+- `agent/piper_tts.py` — adapter TTS Piper (verificado contra SDK instalado)
 - `agent/lead_extract.py` — extracción de lead al colgar (DeepSeek, temp 0.1)
 - `agent/requirements.txt` — dependencias Python
 - `agent/.env.example` — plantilla (copiar a `.env`, nunca subir el real)
 - `agent/make_token.py` — genera token de prueba para la página web
-- `web/test-page.html` — página de prueba WebRTC (llamar desde el navegador)
+- `web/test-page.html` — página de prueba WebRTC básica (llamar desde el navegador)
 - `n8n/README.md` — formato del payload que recibe el webhook
 
 ## 6. Bitácora (actualizar aquí mismo, no en otro archivo)
+
+### 2026-10-01 — Antigravity
+- Pull del scaffold v0.1 completado.
+- ✅ **Adapter Piper TTS verificado y adaptado** a `livekit-agents` 1.8.3 (`tts.TTS` y `ChunkedStream`).
+- Implementado soporte dual:
+  1. **In-process (recomendado)**: Carga directa de modelo ONNX con `piper-tts` en Python (`models/piper/es_ES-sharvard-medium.onnx`), latencia de síntesis `< 50 ms`, 0 € y sin necesidad de levantar servidor HTTP externo.
+  2. **HTTP Server**: Fallback compatible con servidores HTTP de Piper (`PIPER_HTTP_URL`).
+- Probada la integración con n8n enviando payload de prueba: HTTP 200 recibido exitosamente en `centralita-test`.
+- ✅ **Página web de prueba y simulador desplegados en GitHub Pages**: `https://yoyocubano.github.io/la-centralita/`
+- ⏳ A la espera de las credenciales (LiveKit Cloud, Deepgram, DeepSeek) para configurar `.env` y levantar el worker.
 
 ### 2026-10-01 — moise
 - Scaffold inicial v0.1 creado y pusheado (código sin probar en vivo).

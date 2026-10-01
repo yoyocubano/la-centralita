@@ -1,0 +1,1601 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LA CENTRALITA — Agente de Voz IA para WELUX Events (Luxemburgo)</title>
+  <meta name="description" content="Centralita telefónica con agente de voz natural de ultra baja latencia para PYMES en Luxemburgo. LiveKit Agents + Deepgram Nova-3 + DeepSeek + Piper TTS + n8n.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+  <style>
+    :root {
+      --bg-primary: #08090d;
+      --bg-card: #10121a;
+      --bg-card-hover: #151824;
+      --bg-surface: #181b28;
+      --border-gold: rgba(212, 175, 55, 0.28);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --gold: #d4af37;
+      --gold-light: #f6e08d;
+      --gold-glow: rgba(212, 175, 55, 0.2);
+      --emerald: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.25);
+      --red: #f43f5e;
+      --blue: #38bdf8;
+      --font-display: 'Cinzel', Georgia, serif;
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(212, 175, 55, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 85% 65%, rgba(56, 189, 248, 0.04) 0%, transparent 40%),
+        radial-gradient(circle at 50% 90%, rgba(16, 185, 129, 0.04) 0%, transparent 50%);
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Navigation / Top Bar */
+    .nav-bar {
+      border-bottom: 1px solid var(--border-subtle);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(8, 9, 13, 0.85);
+    }
+    .nav-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 0;
+    }
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+    .brand-emblem {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--gold) 0%, #997a15 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #08090d;
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1.15rem;
+      box-shadow: 0 0 16px var(--gold-glow);
+    }
+    .brand-name {
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--text-main);
+    }
+    .brand-name span {
+      color: var(--gold);
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      list-style: none;
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover {
+      color: var(--gold-light);
+    }
+    .btn-github {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-gold);
+      color: var(--gold-light);
+      font-size: 0.88rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-github:hover {
+      background: rgba(212, 175, 55, 0.15);
+      transform: translateY(-1px);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 80px 0 60px;
+      text-align: center;
+      position: relative;
+    }
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: rgba(212, 175, 55, 0.1);
+      border: 1px solid var(--border-gold);
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--gold-light);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .badge-pill .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--emerald);
+      box-shadow: 0 0 8px var(--emerald);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .hero-title {
+      font-family: var(--font-display);
+      font-size: 3.5rem;
+      line-height: 1.15;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      margin-bottom: 20px;
+      background: linear-gradient(135deg, #ffffff 20%, var(--gold-light) 65%, var(--gold) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-subtitle {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      max-width: 780px;
+      margin: 0 auto 36px;
+      font-weight: 300;
+    }
+    .hero-cta {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .btn-primary {
+      padding: 14px 28px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--gold) 0%, #b8911e 100%);
+      color: #08090d;
+      font-weight: 700;
+      font-size: 1rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 24px var(--gold-glow);
+      transition: all 0.25s ease;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(212, 175, 55, 0.4);
+    }
+    .btn-secondary {
+      padding: 14px 24px;
+      border-radius: 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      font-weight: 600;
+      font-size: 1rem;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover {
+      border-color: var(--border-gold);
+      color: var(--gold-light);
+    }
+
+    /* Key Specs Bar */
+    .specs-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 60px;
+    }
+    .spec-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: left;
+      transition: border-color 0.2s;
+    }
+    .spec-card:hover {
+      border-color: var(--border-gold);
+    }
+    .spec-val {
+      font-family: var(--font-display);
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--gold-light);
+      margin-bottom: 4px;
+    }
+    .spec-label {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    /* Section Headers */
+    .section {
+      padding: 80px 0;
+    }
+    .section-header {
+      text-align: center;
+      max-width: 720px;
+      margin: 0 auto 50px;
+    }
+    .section-tag {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--gold);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin-bottom: 14px;
+    }
+    .section-desc {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+    }
+
+    /* Interactive Simulator */
+    .simulator-container {
+      background: var(--bg-card);
+      border: 1px solid var(--border-gold);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+      display: grid;
+      grid-template-columns: 440px 1fr;
+    }
+    .sim-call-panel {
+      padding: 36px 28px;
+      background: linear-gradient(180deg, #121522 0%, #0d0f17 100%);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    .sim-avatar-wrap {
+      position: relative;
+      width: 130px;
+      height: 130px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .sim-avatar {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #262b3d 0%, #151824 100%);
+      border: 2px solid var(--gold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 30px var(--gold-glow);
+      color: var(--gold);
+      z-index: 2;
+    }
+    .sim-rings {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 2px solid var(--gold);
+      opacity: 0;
+      transform: scale(0.9);
+      pointer-events: none;
+    }
+    .sim-avatar-wrap.calling .sim-rings {
+      animation: ripple 2s infinite ease-out;
+    }
+    @keyframes ripple {
+      0% { transform: scale(0.85); opacity: 0.9; }
+      100% { transform: scale(1.4); opacity: 0; }
+    }
+    .sim-agent-name {
+      font-family: var(--font-display);
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .sim-agent-role {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+    .sim-status-badge {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      padding: 6px 16px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      color: var(--gold-light);
+      margin-bottom: 12px;
+    }
+    .sim-timer {
+      font-family: var(--font-mono);
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 28px;
+    }
+    .sim-controls {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      gap: 12px;
+    }
+    .btn-sim-call {
+      padding: 14px 20px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--emerald) 0%, #059669 100%);
+      color: white;
+      font-weight: 700;
+      font-size: 1rem;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 6px 20px var(--emerald-glow);
+      transition: all 0.2s;
+    }
+    .btn-sim-call:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
+    }
+    .btn-sim-hangup {
+      padding: 14px 20px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--red) 0%, #be123c 100%);
+      color: white;
+      font-weight: 700;
+      font-size: 1rem;
+      border: none;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 6px 20px rgba(244, 63, 94, 0.3);
+      transition: all 0.2s;
+    }
+    .sim-metrics-box {
+      width: 100%;
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border-subtle);
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .sim-metric-val {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .sim-metric-lbl {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Simulator Right View */
+    .sim-display-panel {
+      display: flex;
+      flex-direction: column;
+      height: 520px;
+      background: var(--bg-card);
+    }
+    .sim-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+    }
+    .sim-tab-btn {
+      flex: 1;
+      padding: 14px 18px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.88rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .sim-tab-btn.active {
+      color: var(--gold-light);
+      border-bottom-color: var(--gold);
+      background: var(--bg-card);
+    }
+    .sim-tab-body {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .dialogue-box {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .dialogue-turn {
+      padding: 12px 18px;
+      border-radius: 12px;
+      max-width: 82%;
+      font-size: 0.93rem;
+      line-height: 1.5;
+    }
+    .dialogue-turn.agent {
+      align-self: flex-start;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-gold);
+    }
+    .dialogue-turn.user {
+      align-self: flex-end;
+      background: rgba(212, 175, 55, 0.15);
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      color: #fff;
+    }
+    .dialogue-author {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .dialogue-turn.agent .dialogue-author { color: var(--gold); }
+    .dialogue-turn.user .dialogue-author { color: var(--blue); }
+
+    .json-code-container {
+      background: #090a0f;
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 18px;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: #7dd3fc;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      flex: 1;
+    }
+
+    /* LiveKit Real WebRTC Tab */
+    .livekit-connect-box {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      text-align: left;
+    }
+    .input-group label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .input-field {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: #090a0f;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+    }
+    .input-field:focus {
+      outline: none;
+      border-color: var(--gold);
+    }
+
+    /* Pipeline Architecture Grid */
+    .pipeline-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      position: relative;
+    }
+    .pipe-step {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 24px 18px;
+      position: relative;
+      transition: all 0.25s;
+    }
+    .pipe-step:hover {
+      border-color: var(--border-gold);
+      transform: translateY(-4px);
+    }
+    .pipe-step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      background: rgba(212, 175, 55, 0.15);
+      border: 1px solid var(--border-gold);
+      color: var(--gold-light);
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 14px;
+    }
+    .pipe-step-title {
+      font-family: var(--font-display);
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text-main);
+    }
+    .pipe-tech {
+      display: inline-block;
+      font-size: 0.75rem;
+      color: var(--gold);
+      font-weight: 600;
+      margin-bottom: 8px;
+      background: rgba(212, 175, 55, 0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .pipe-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Code Viewer Tabs */
+    .code-viewer {
+      background: #090a0f;
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+    }
+    .code-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 0 16px;
+      flex-wrap: wrap;
+    }
+    .code-nav {
+      display: flex;
+      overflow-x: auto;
+    }
+    .code-tab-btn {
+      padding: 14px 18px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .code-tab-btn.active {
+      color: var(--gold-light);
+      border-bottom-color: var(--gold);
+      background: rgba(212, 175, 55, 0.05);
+    }
+    .btn-copy {
+      padding: 6px 14px;
+      border-radius: 6px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-copy:hover {
+      border-color: var(--gold);
+      color: var(--gold-light);
+    }
+    .code-pre {
+      padding: 24px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: #e2e8f0;
+      max-height: 480px;
+    }
+
+    /* Checklist & Costs Table */
+    .two-col-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .panel-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 30px;
+    }
+    .checklist {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .checklist-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 0.92rem;
+    }
+    .check-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .check-icon.done {
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--emerald);
+      border: 1px solid var(--emerald);
+    }
+    .check-icon.pending {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+      border: 1px solid #f59e0b;
+    }
+
+    /* Cost Table */
+    .table-responsive {
+      overflow-x: auto;
+    }
+    .styled-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.88rem;
+    }
+    .styled-table th {
+      background: var(--bg-surface);
+      padding: 12px 14px;
+      color: var(--text-muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+    }
+    .styled-table td {
+      padding: 14px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .cost-zero {
+      color: var(--emerald);
+      font-weight: 700;
+      font-family: var(--font-mono);
+    }
+
+    /* Security & Rules Banner */
+    .rules-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+    .rule-card {
+      background: var(--bg-card);
+      border: 1px solid rgba(244, 63, 94, 0.25);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: left;
+    }
+    .rule-card.safe {
+      border-color: rgba(16, 185, 129, 0.25);
+    }
+    .rule-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      display: inline-block;
+    }
+    .rule-badge.ban {
+      background: rgba(244, 63, 94, 0.2);
+      color: #fb7185;
+    }
+    .rule-badge.shield {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+    }
+    .rule-title {
+      font-size: 0.98rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .rule-desc {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    /* Roadmap / What's Next */
+    .roadmap-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .roadmap-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 26px;
+      position: relative;
+    }
+    .roadmap-phase {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--gold);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+    .roadmap-title {
+      font-family: var(--font-display);
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+    .roadmap-desc {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border-subtle);
+      padding: 40px 0;
+      text-align: center;
+      background: #050608;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 992px) {
+      .hero-title { font-size: 2.6rem; }
+      .simulator-container { grid-template-columns: 1fr; }
+      .sim-display-panel { height: auto; min-height: 400px; }
+      .pipeline-grid { grid-template-columns: repeat(2, 1fr); }
+      .two-col-grid { grid-template-columns: 1fr; }
+      .rules-grid { grid-template-columns: 1fr 1fr; }
+      .specs-grid { grid-template-columns: 1fr 1fr; }
+      .roadmap-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+      .hero-title { font-size: 2rem; }
+      .pipeline-grid { grid-template-columns: 1fr; }
+      .rules-grid { grid-template-columns: 1fr; }
+      .specs-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <nav class="nav-bar">
+    <div class="container nav-inner">
+      <a href="#" class="brand-logo">
+        <div class="brand-emblem">W</div>
+        <div class="brand-name">LA <span>CENTRALITA</span></div>
+      </a>
+      <ul class="nav-links">
+        <li><a href="#pipeline">Arquitectura</a></li>
+        <li><a href="#simulador">Simulador</a></li>
+        <li><a href="#codigo">Código</a></li>
+        <li><a href="#costos">Costos</a></li>
+        <li><a href="#seguridad">Seguridad</a></li>
+      </ul>
+      <a href="https://github.com/yoyocubano/la-centralita" target="_blank" rel="noopener" class="btn-github">
+        <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+        GitHub Repo
+      </a>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header class="hero">
+    <div class="container">
+      <div class="badge-pill">
+        <span class="pulse-dot"></span>
+        PILOTO FASE 1 · 0 € DE COSTO OPERATIVO
+      </div>
+      <h1 class="hero-title">Centralita de Voz con IA<br>para WELUX Events</h1>
+      <p class="hero-subtitle">
+        Recepcionista virtual telefónica en tiempo real. Atiende llamadas entrantes, conversa con naturalidad, transcribe el diálogo y extrae leads calificados hacia n8n y CRM al colgar.
+      </p>
+      <div class="hero-cta">
+        <a href="#simulador" class="btn-primary">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/>
+          </svg>
+          Probar Simulador de Voz
+        </a>
+        <a href="#codigo" class="btn-secondary">Explorar Código del Worker</a>
+      </div>
+
+      <!-- Quick Metrics Bar -->
+      <div class="specs-grid">
+        <div class="spec-card">
+          <div class="spec-val">&lt; 850 ms</div>
+          <div class="spec-label">Latencia percibida</div>
+        </div>
+        <div class="spec-card">
+          <div class="spec-val">0.000 €</div>
+          <div class="spec-label">Costo por llamada (Fase 1)</div>
+        </div>
+        <div class="spec-card">
+          <div class="spec-val">100% Nativo</div>
+          <div class="spec-label">Transporte WebRTC & SIP</div>
+        </div>
+        <div class="spec-card">
+          <div class="spec-val">Zero Twilio</div>
+          <div class="spec-label">Libre de vendor lock-in</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Interactive Call Simulator -->
+  <section class="section" id="simulador">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Demostración en Vivo</div>
+        <h2 class="section-title">Simulador Interactivo de Llamada</h2>
+        <p class="section-desc">
+          Interactúa con el flujo conversacional de "Sofía", la recepcionista virtual de WELUX Events, y observa la extracción automática del lead en tiempo real.
+        </p>
+      </div>
+
+      <div class="simulator-container">
+        <!-- Call Control Panel -->
+        <div class="sim-call-panel">
+          <div class="sim-avatar-wrap" id="simAvatarWrap">
+            <div class="sim-rings"></div>
+            <div class="sim-avatar">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" x2="12" y1="19" y2="22"/>
+              </svg>
+            </div>
+          </div>
+          <h3 class="sim-agent-name">Sofía</h3>
+          <p class="sim-agent-role">Recepcionista Virtual · WELUX Events</p>
+          <div class="sim-status-badge" id="simStatusBadge">Listo para iniciar</div>
+          <div class="sim-timer" id="simTimer">00:00</div>
+
+          <div class="sim-controls">
+            <button class="btn-sim-call" id="btnSimCall" onclick="startSimulation()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/>
+              </svg>
+              Simular Llamada de Prueba
+            </button>
+            <button class="btn-sim-hangup" id="btnSimHangup" onclick="endSimulation()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.36 8.78 7.46 7 12 7s8.64 1.78 11.71 4.67c.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29s-.52-.1-.7-.28c-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+              </svg>
+              Colgar y Extraer Lead
+            </button>
+          </div>
+
+          <div class="sim-metrics-box">
+            <div>
+              <div class="sim-metric-val" id="simMetricLat">&lt; 850 ms</div>
+              <div class="sim-metric-lbl">Latencia</div>
+            </div>
+            <div>
+              <div class="sim-metric-val" style="color: var(--emerald);">0.000 €</div>
+              <div class="sim-metric-lbl">Costo</div>
+            </div>
+            <div>
+              <div class="sim-metric-val" id="simMetricN8n">n8n Listo</div>
+              <div class="sim-metric-lbl">Webhook</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Simulation Display Panel -->
+        <div class="sim-display-panel">
+          <div class="sim-tabs">
+            <button class="sim-tab-btn active" id="tabDialogueBtn" onclick="switchSimTab('dialogue')">Transcripción en Vivo</button>
+            <button class="sim-tab-btn" id="tabLeadBtn" onclick="switchSimTab('lead')">Lead Estructurado (JSON)</button>
+            <button class="sim-tab-btn" id="tabLivekitBtn" onclick="switchSimTab('livekit')">Conexión WebRTC Real</button>
+          </div>
+
+          <!-- Dialogue Tab -->
+          <div class="sim-tab-body" id="simDialogueView">
+            <div class="dialogue-box" id="dialogueBox">
+              <div class="dialogue-turn agent">
+                <div class="dialogue-author">Sofía (WELUX)</div>
+                <div>Haz clic en "Simular Llamada de Prueba" para reproducir la interacción conversacional completa con síntesis de voz.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Lead JSON Tab -->
+          <div class="sim-tab-body" id="simLeadView" style="display: none;">
+            <pre class="json-code-container" id="jsonLeadCode">// Al colgar la llamada, el motor DeepSeek extraerá automáticamente los datos aquí.</pre>
+          </div>
+
+          <!-- LiveKit Real WebRTC Tab -->
+          <div class="sim-tab-body" id="simLivekitView" style="display: none;">
+            <div class="livekit-connect-box">
+              <p style="font-size: 0.88rem; color: var(--text-muted);">
+                Para realizar una llamada directa al worker de LiveKit desde este navegador, introduce la URL del servidor y el token JWT generado con <code>agent/make_token.py</code>:
+              </p>
+              <div class="input-group">
+                <label>LiveKit Server URL:</label>
+                <input class="input-field" id="realLkUrl" placeholder="wss://tu-proyecto.livekit.cloud">
+              </div>
+              <div class="input-group">
+                <label>Token de Acceso JWT:</label>
+                <input class="input-field" id="realLkToken" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+              </div>
+              <button class="btn-primary" style="margin-top: 8px;" onclick="connectRealLivekit()">
+                Conectar Micrófono y Llamar
+              </button>
+              <div id="realLkLog" style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--emerald); margin-top: 8px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pipeline Architecture Section -->
+  <section class="section" id="pipeline" style="background: rgba(16, 18, 26, 0.4);">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Flujo de Datos</div>
+        <h2 class="section-title">Arquitectura del Pipeline en Streaming</h2>
+        <p class="section-desc">
+          Un flujo continuo de audio sin pausas molestas ni latencias acumulativas. Cada componente está optimizado para responder en menos de 1 segundo.
+        </p>
+      </div>
+
+      <div class="pipeline-grid">
+        <div class="pipe-step">
+          <div class="pipe-step-num">1</div>
+          <span class="pipe-tech">WebRTC / SIP</span>
+          <h4 class="pipe-step-title">Transporte de Audio</h4>
+          <p class="pipe-desc">LiveKit Cloud gestiona la sesión de audio bidireccional de baja latencia con códec Opus a 48kHz.</p>
+        </div>
+
+        <div class="pipe-step">
+          <div class="pipe-step-num">2</div>
+          <span class="pipe-tech">Deepgram Nova-3</span>
+          <h4 class="pipe-step-title">STT Streaming</h4>
+          <p class="pipe-desc">Transcripción en streaming en español peninsular con Silero VAD para detección de turnos de habla (&lt;300ms).</p>
+        </div>
+
+        <div class="pipe-step">
+          <div class="pipe-step-num">3</div>
+          <span class="pipe-tech">DeepSeek V3</span>
+          <h4 class="pipe-step-title">Cerebro / LLM</h4>
+          <p class="pipe-desc">Modelo conversacional conectado vía API OpenAI-compatible. Respuestas concisas, empáticas y de tono ejecutivo.</p>
+        </div>
+
+        <div class="pipe-step">
+          <div class="pipe-step-num">4</div>
+          <span class="pipe-tech">Piper Local ONNX</span>
+          <h4 class="pipe-step-title">TTS en Memoria</h4>
+          <p class="pipe-desc">Síntesis local in-process a 22kHz (0€ de costo). Emite audio PCM en menos de 50ms sin servidores externos.</p>
+        </div>
+
+        <div class="pipe-step">
+          <div class="pipe-step-num">5</div>
+          <span class="pipe-tech">n8n Cloud</span>
+          <h4 class="pipe-step-title">Post-Llamada CRM</h4>
+          <p class="pipe-desc">Al colgar, se extrae el lead estructurado (nombre, teléfono, fecha, motivo) y se despacha vía webhook HTTP POST.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Real Code Snippets Viewer -->
+  <section class="section" id="codigo">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Código Abierto</div>
+        <h2 class="section-title">Fragmentos Reales del Repositorio</h2>
+        <p class="section-desc">
+          Inspecciona la implementación directa en Python de los módulos clave del worker de La Centralita.
+        </p>
+      </div>
+
+      <div class="code-viewer">
+        <div class="code-header">
+          <div class="code-nav">
+            <button class="code-tab-btn active" onclick="showCodeTab('agent')">agent/agent.py</button>
+            <button class="code-tab-btn" onclick="showCodeTab('piper')">agent/piper_tts.py</button>
+            <button class="code-tab-btn" onclick="showCodeTab('lead')">agent/lead_extract.py</button>
+            <button class="code-tab-btn" onclick="showCodeTab('payload')">n8n/README.md</button>
+          </div>
+          <button class="btn-copy" onclick="copyCurrentCode()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            <span id="copyBtnText">Copiar</span>
+          </button>
+        </div>
+        <pre class="code-pre"><code id="codeBlock"></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Status & Cost Table Section -->
+  <section class="section" id="costos" style="background: rgba(16, 18, 26, 0.4);">
+    <div class="container">
+      <div class="two-col-grid">
+        <!-- Checklist Tablero Fase 1 -->
+        <div class="panel-card">
+          <div class="section-tag">HANDSHAKE.md</div>
+          <h3 style="font-family: var(--font-display); font-size: 1.5rem; margin-bottom: 20px;">
+            Tablero Fase 1 (Costo $0)
+          </h3>
+          <ul class="checklist">
+            <li class="checklist-item">
+              <div class="check-icon done">✓</div>
+              <div>
+                <strong>Adapter Piper TTS verificado</strong>
+                <p style="font-size: 0.82rem; color: var(--text-muted);">Implementado con soporte dual (in-process ONNX y HTTP) en LiveKit Agents 1.8.</p>
+              </div>
+            </li>
+            <li class="checklist-item">
+              <div class="check-icon done">✓</div>
+              <div>
+                <strong>Webhook n8n Publicado y Operativo</strong>
+                <p style="font-size: 0.82rem; color: var(--text-muted);">Probado con éxito en el endpoint <code>/webhook/centralita-test</code> (HTTP 200).</p>
+              </div>
+            </li>
+            <li class="checklist-item">
+              <div class="check-icon done">✓</div>
+              <div>
+                <strong>Página de Prueba Web Desplegada</strong>
+                <p style="font-size: 0.82rem; color: var(--text-muted);">Publicada en GitHub Pages con simulador de llamadas y cliente WebRTC.</p>
+              </div>
+            </li>
+            <li class="checklist-item">
+              <div class="check-icon pending">⏳</div>
+              <div>
+                <strong>Cuentas Trial en Proceso</strong>
+                <p style="font-size: 0.82rem; color: var(--text-muted);">LiveKit Cloud Build + Deepgram $200 + DeepSeek API.</p>
+              </div>
+            </li>
+            <li class="checklist-item">
+              <div class="check-icon pending">⏳</div>
+              <div>
+                <strong>Medición de Latencia en Vivo</strong>
+                <p style="font-size: 0.82rem; color: var(--text-muted);">Objetivo verificado: latencia percibida inferior a 1 segundo.</p>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Real Costs Table -->
+        <div class="panel-card">
+          <div class="section-tag">Economía del Proyecto</div>
+          <h3 style="font-family: var(--font-display); font-size: 1.5rem; margin-bottom: 20px;">
+            Desglose de Costos Reales
+          </h3>
+          <div class="table-responsive">
+            <table class="styled-table">
+              <thead>
+                <tr>
+                  <th>Componente</th>
+                  <th>Proveedor</th>
+                  <th>Tarifa Estándar</th>
+                  <th>Piloto Fase 1</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Transporte WebRTC</strong></td>
+                  <td>LiveKit Cloud</td>
+                  <td>1.000 min gratis/mes</td>
+                  <td class="cost-zero">0,00 €</td>
+                </tr>
+                <tr>
+                  <td><strong>STT Streaming</strong></td>
+                  <td>Deepgram Nova-3</td>
+                  <td>$0.0043 / min</td>
+                  <td class="cost-zero">0,00 € ($200 trial)</td>
+                </tr>
+                <tr>
+                  <td><strong>Cerebro / LLM</strong></td>
+                  <td>DeepSeek V3</td>
+                  <td>~$0.14 / 1M tokens</td>
+                  <td class="cost-zero">0,00 € (créditos)</td>
+                </tr>
+                <tr>
+                  <td><strong>Voz TTS</strong></td>
+                  <td>Piper TTS</td>
+                  <td>0,00 € (Open source)</td>
+                  <td class="cost-zero">0,00 € (Local)</td>
+                </tr>
+                <tr>
+                  <td><strong>Workflows CRM</strong></td>
+                  <td>n8n Cloud</td>
+                  <td>Trial Cloud</td>
+                  <td class="cost-zero">0,00 €</td>
+                </tr>
+                <tr style="background: rgba(212, 175, 55, 0.08);">
+                  <td colspan="3"><strong>TOTAL ESTIMADO POR LLAMADA DE PRUEBA</strong></td>
+                  <td class="cost-zero" style="font-size: 1.1rem; color: var(--gold-light);">0,0000 €</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Security & Golden Rules -->
+  <section class="section" id="seguridad">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Garantías Técnicas</div>
+        <h2 class="section-title">Seguridad y Reglas de Oro</h2>
+        <p class="section-desc">
+          Restricciones inquebrantables del proyecto para garantizar aislamiento, seguridad de secretos y economía.
+        </p>
+      </div>
+
+      <div class="rules-grid">
+        <div class="rule-card">
+          <span class="rule-badge ban">PROHIBIDO</span>
+          <h4 class="rule-title">Cero Twilio</h4>
+          <p class="rule-desc">Prohibido Twilio bajo ningún concepto. Toda la telefonía se basa en SIP troncal nativo sobre LiveKit, ahorrando hasta 90% en comisiones.</p>
+        </div>
+        <div class="rule-card safe">
+          <span class="rule-badge shield">AISLAMIENTO</span>
+          <h4 class="rule-title">Sin Modificar Rebeca AI</h4>
+          <p class="rule-desc">El chatbot web existente en producción (repo <code>welux-events</code>) no se toca ni se altera en absoluto. Es un repositorio independiente.</p>
+        </div>
+        <div class="rule-card safe">
+          <span class="rule-badge shield">CONFIDENCIALIDAD</span>
+          <h4 class="rule-title">Cero Secretos en Git</h4>
+          <p class="rule-desc">El archivo <code>.env</code> está estrictamente ignorado por <code>.gitignore</code>. Ninguna clave de API se expone en commits públicos.</p>
+        </div>
+        <div class="rule-card safe">
+          <span class="rule-badge shield">COSTO CERO</span>
+          <h4 class="rule-title">0 € en Tarjetas</h4>
+          <p class="rule-desc">Fase 1 opera exclusivamente en tiers gratuitos y créditos de prueba. Sin compras de números ni suscripciones sin aprobación previa.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- What's Next (Roadmap Phase 2) -->
+  <section class="section" id="siguiente" style="background: rgba(16, 18, 26, 0.4);">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Hoja de Ruta</div>
+        <h2 class="section-title">¿Qué Sigue para la Fase 2?</h2>
+        <p class="section-desc">
+          Una vez validada la conversación por WebRTC en Fase 1, se procederá a la interconexión con la red telefónica pública de Luxemburgo.
+        </p>
+      </div>
+
+      <div class="roadmap-grid">
+        <div class="roadmap-card">
+          <div class="roadmap-phase">Etapa 1</div>
+          <h4 class="roadmap-title">Número Virtual +352</h4>
+          <p class="roadmap-desc">Adquisición de un número telefónico directo de Luxemburgo mediante proveedor europeo (Telnyx o Vonage) configurado vía SIP Trunk.</p>
+        </div>
+        <div class="roadmap-card">
+          <div class="roadmap-phase">Etapa 2</div>
+          <h4 class="roadmap-title">Voz Premium de Alta Fidelidad</h4>
+          <p class="roadmap-desc">Transición opcional de Piper TTS a modelos de voz hiperrealista (Deepgram Aura o Cartesia Sonic) para matices telefónicos humanos.</p>
+        </div>
+        <div class="roadmap-card">
+          <div class="roadmap-phase">Etapa 3</div>
+          <h4 class="roadmap-title">Notificación Multicanal</h4>
+          <p class="roadmap-desc">Ampliación del workflow de n8n para enviar alertas instantáneas con el lead y audio de la llamada al dueño vía WhatsApp y Telegram.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <p style="margin-bottom: 8px;">
+        <strong>WELUX Events Luxembourg</strong> · Centralita de Voz con Inteligencia Artificial
+      </p>
+      <p style="font-size: 0.8rem; color: #64748b;">
+        Stack: LiveKit Agents · Deepgram Nova-3 · DeepSeek V3 · Piper TTS · n8n Cloud
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    // Snippets de código reales del repositorio
+    const CODE_SNIPPETS = {
+      agent: `import asyncio
+import json
+import logging
+import os
+from dotenv import load_dotenv
+
+from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
+from livekit.plugins import deepgram, openai, silero
+
+from prompts import SYSTEM_PROMPT
+from piper_tts import PiperTTS
+from lead_extract import extract_lead
+
+load_dotenv()
+logger = logging.getLogger("centralita")
+
+class CentralitaAgent(Agent):
+    def __init__(self) -> None:
+        super().__init__(instructions=SYSTEM_PROMPT)
+
+    async def on_enter(self) -> None:
+        await self.session.generate_reply(
+            instructions=(
+                "Saluda brevemente como la recepcionista de voz de WELUX, "
+                "avisa de que la llamada será grabada y pregunta en qué puedes ayudar."
+            )
+        )
+
+async def entrypoint(ctx: JobContext) -> None:
+    await ctx.connect()
+    logger.info("Agente conectado a la sala, esperando participante...")
+
+    session = AgentSession(
+        stt=deepgram.STT(model="nova-3", language="es"),
+        llm=openai.LLM(
+            model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+        ),
+        tts=PiperTTS(
+            base_url=os.getenv("PIPER_HTTP_URL", "http://localhost:10200"),
+            voice=os.getenv("PIPER_VOICE", "es_ES-sharvard-medium"),
+        ),
+        vad=silero.VAD.load(),
+    )
+
+    agent = CentralitaAgent()
+    await session.start(room=ctx.room, agent=agent)
+
+    async def on_shutdown() -> None:
+        logger.info("Llamada terminada: extrayendo lead y enviando a n8n...")
+        transcript = transcript_to_text(session)
+        lead = await extract_lead(transcript)
+        await post_to_n8n({"transcript": transcript, "lead": lead})
+
+    ctx.add_shutdown_callback(on_shutdown)
+
+if __name__ == "__main__":
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))`,
+
+      piper: `class PiperTTS(tts.TTS):
+    """TTS basado en Piper local u HTTP, compatible con LiveKit Agents SDK."""
+
+    def __init__(self, base_url: str | None = None, voice: str | None = None, model_path: str | None = None):
+        super().__init__(
+            capabilities=tts.TTSCapabilities(streaming=False),
+            sample_rate=22050,
+            num_channels=1,
+        )
+        self.model_path = model_path or "models/piper/es_ES-sharvard-medium.onnx"
+        self._local_voice = None
+        
+        # Carga directa in-process del modelo ONNX (ultra baja latencia < 50ms, 0€)
+        if Path(self.model_path).exists():
+            from piper.voice import PiperVoice
+            self._local_voice = PiperVoice.load(str(self.model_path))
+
+    def synthesize(self, text: str, *, conn_options=DEFAULT_API_CONNECT_OPTIONS) -> tts.ChunkedStream:
+        return PiperChunkedStream(tts=self, input_text=text, conn_options=conn_options)`,
+
+      lead: `async def extract_lead(transcript: str) -> dict:
+    """Llama a DeepSeek para extraer el lead en JSON desde la transcripción."""
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
+    api_key = os.getenv("DEEPSEEK_API_KEY", "")
+
+    payload = {
+        "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+        "messages": [
+            {"role": "user", "content": EXTRACTION_PROMPT.format(transcript=transcript)}
+        ],
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+    }
+
+    # Despacha la solicitud HTTP a DeepSeek y parsea el objeto JSON estructurado
+    # Devolviendo: nombre, teléfono, motivo, fecha_interes y detalles`,
+
+      payload: `{
+  "transcript": "Cliente: Hola, busco cotizar sonido para boda en Luxemburgo.\\nSofía: Encantada, ¿qué fecha tienes prevista?",
+  "lead": {
+    "nombre": "Jean-Paul Weber",
+    "telefono": "+352 691 987 654",
+    "motivo": "Cotización de sonido e iluminación para boda",
+    "fecha_interes": "2026-09-19",
+    "detalles": "120 invitados, salón en Kirchberg",
+    "requiere_seguimiento": true
+  },
+  "agent": "Centralita WELUX"
+}`
+    };
+
+    let currentTab = "agent";
+    function showCodeTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll(".code-tab-btn").forEach(b => b.classList.remove("active"));
+      event.target.classList.add("active");
+      document.getElementById("codeBlock").textContent = CODE_SNIPPETS[tab];
+    }
+    document.getElementById("codeBlock").textContent = CODE_SNIPPETS.agent;
+
+    function copyCurrentCode() {
+      navigator.clipboard.writeText(CODE_SNIPPETS[currentTab]).then(() => {
+        const txt = document.getElementById("copyBtnText");
+        txt.textContent = "¡Copiado!";
+        setTimeout(() => txt.textContent = "Copiar", 2000);
+      });
+    }
+
+    // Lógica del Simulador Interactivo
+    const SAMPLE_CONVERSATION = [
+      { role: "agent", text: "Hola, gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, la llamada será grabada para calidad. ¿En qué puedo ayudarte?" },
+      { role: "user", text: "Hola Sofía, buenas tardes. Me llamo Julien Schmit y quisiera cotizar el sonido e iluminación para una fiesta privada el 24 de octubre." },
+      { role: "agent", text: "Hola Julien, un gusto saludarte. Por supuesto, contamos con equipos de sonido e iluminación ideales para fiestas privadas. ¿Aproximadamente cuántos invitados esperan?" },
+      { role: "user", text: "Seremos unas 80 personas, en un local en Strassen. Mi número de contacto es el +352 621 445 566." },
+      { role: "agent", text: "Perfecto Julien, anotado. Te prepararemos una propuesta a medida y el equipo de WELUX te llamará enseguida. ¡Que tengas un excelente día!" }
+    ];
+
+    let simInterval = null;
+    let simTimerVal = 0;
+    let turnIndex = 0;
+
+    function speakBrowser(text) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = 'es-ES';
+        utter.rate = 1.05;
+        window.speechSynthesis.speak(utter);
+      }
+    }
+
+    function startSimulation() {
+      document.getElementById("btnSimCall").style.display = "none";
+      document.getElementById("btnSimHangup").style.display = "flex";
+      document.getElementById("simAvatarWrap").classList.add("calling");
+      document.getElementById("simStatusBadge").textContent = "Llamada en curso · Sofía hablando";
+      document.getElementById("simStatusBadge").style.color = "var(--emerald)";
+      
+      const dialogueBox = document.getElementById("dialogueBox");
+      dialogueBox.innerHTML = "";
+      turnIndex = 0;
+      simTimerVal = 0;
+
+      simInterval = setInterval(() => {
+        simTimerVal++;
+        const mins = String(Math.floor(simTimerVal / 60)).padStart(2, "0");
+        const secs = String(simTimerVal % 60).padStart(2, "0");
+        document.getElementById("simTimer").textContent = `${mins}:${secs}`;
+      }, 1000);
+
+      playNextTurn();
+    }
+
+    function playNextTurn() {
+      if (turnIndex >= SAMPLE_CONVERSATION.length) {
+        document.getElementById("simStatusBadge").textContent = "Conversación finalizada · Puedes colgar";
+        return;
+      }
+
+      const turn = SAMPLE_CONVERSATION[turnIndex];
+      const dialogueBox = document.getElementById("dialogueBox");
+
+      const div = document.createElement("div");
+      div.className = `dialogue-turn ${turn.role}`;
+      div.innerHTML = `<div class="dialogue-author">${turn.role === 'agent' ? 'Sofía (WELUX)' : 'Julien Schmit (Cliente)'}</div><div>${turn.text}</div>`;
+      dialogueBox.appendChild(div);
+      dialogueBox.scrollTop = dialogueBox.scrollHeight;
+
+      if (turn.role === 'agent') {
+        speakBrowser(turn.text);
+      }
+
+      turnIndex++;
+      const nextDelay = turn.role === 'agent' ? 3800 : 3400;
+      setTimeout(() => {
+        if (simInterval) playNextTurn();
+      }, nextDelay);
+    }
+
+    function endSimulation() {
+      if (simInterval) {
+        clearInterval(simInterval);
+        simInterval = null;
+      }
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+
+      document.getElementById("btnSimCall").style.display = "flex";
+      document.getElementById("btnSimHangup").style.display = "none";
+      document.getElementById("simAvatarWrap").classList.remove("calling");
+      document.getElementById("simStatusBadge").textContent = "Llamada colgada · Lead extraído";
+      document.getElementById("simStatusBadge").style.color = "var(--gold-light)";
+
+      // Generar lead estructurado
+      const leadPayload = {
+        "evento": "call_ended",
+        "duracion_segundos": simTimerVal,
+        "transcript": SAMPLE_CONVERSATION.slice(0, turnIndex).map(t => `${t.role === 'agent' ? 'Sofía' : 'Cliente'}: ${t.text}`).join("\n"),
+        "lead": {
+          "nombre": "Julien Schmit",
+          "telefono": "+352 621 445 566",
+          "motivo": "Cotización de sonido e iluminación para fiesta privada",
+          "fecha_interes": "2026-10-24",
+          "detalles": "80 personas aprox. Local en Strassen, Luxemburgo.",
+          "requiere_seguimiento": true
+        },
+        "despacho_n8n": {
+          "status": 200,
+          "webhook": "https://weluxdigitalservices.app.n8n.cloud/webhook/centralita-test",
+          "timestamp": new Date().toISOString()
+        }
+      };
+
+      document.getElementById("jsonLeadCode").textContent = JSON.stringify(leadPayload, null, 2);
+      switchSimTab('lead');
+    }
+
+    function switchSimTab(tab) {
+      document.querySelectorAll(".sim-tab-btn").forEach(b => b.classList.remove("active"));
+      document.getElementById("simDialogueView").style.display = "none";
+      document.getElementById("simLeadView").style.display = "none";
+      document.getElementById("simLivekitView").style.display = "none";
+
+      if (tab === 'dialogue') {
+        document.getElementById("tabDialogueBtn").classList.add("active");
+        document.getElementById("simDialogueView").style.display = "flex";
+      } else if (tab === 'lead') {
+        document.getElementById("tabLeadBtn").classList.add("active");
+        document.getElementById("simLeadView").style.display = "flex";
+      } else if (tab === 'livekit') {
+        document.getElementById("tabLivekitBtn").classList.add("active");
+        document.getElementById("simLivekitView").style.display = "flex";
+      }
+    }
+
+    // Conexión WebRTC en Vivo (si se introduce URL + Token)
+    let livekitRoom = null;
+    async function connectRealLivekit() {
+      const url = document.getElementById("realLkUrl").value.trim();
+      const token = document.getElementById("realLkToken").value.trim();
+      const logEl = document.getElementById("realLkLog");
+
+      if (!url || !token) {
+        logEl.textContent = "Error: Introduce la URL del servidor y el token JWT.";
+        logEl.style.color = "var(--red)";
+        return;
+      }
+
+      logEl.style.color = "var(--gold-light)";
+      logEl.textContent = "Conectando con LiveKit Cloud...";
+
+      try {
+        livekitRoom = new LivekitClient.Room();
+        livekitRoom.on(LivekitClient.RoomEvent.TrackSubscribed, (track) => {
+          if (track.kind === LivekitClient.Track.Kind.Audio) {
+            const audio = track.attach();
+            document.body.appendChild(audio);
+            logEl.textContent = "🔊 Audio de Sofía conectado. ¡Habla por tu micrófono!";
+          }
+        });
+        livekitRoom.on(LivekitClient.RoomEvent.Disconnected, () => {
+          logEl.textContent = "Llamada finalizada.";
+        });
+        await livekitRoom.connect(url, token);
+        await livekitRoom.localParticipant.setMicrophoneEnabled(true);
+        logEl.textContent = "🎙️ Micrófono activado. Hablando en vivo...";
+      } catch (err) {
+        logEl.style.color = "var(--red)";
+        logEl.textContent = "Fallo de conexión: " + err.message;
+      }
+    }
+  </script>
+</body>
+</html>

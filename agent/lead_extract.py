@@ -6,7 +6,10 @@ import logging
 import os
 import urllib.request
 
-from prompts import EXTRACTION_PROMPT
+try:
+    from prompts import EXTRACTION_PROMPT
+except ImportError:
+    from .prompts import EXTRACTION_PROMPT
 
 logger = logging.getLogger("centralita")
 

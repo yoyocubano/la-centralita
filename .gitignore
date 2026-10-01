@@ -11,3 +11,7 @@ venv/
 
 # Sistema
 .DS_Store
+
+# Modelos binarios (descargar con scripts/download_models.sh)
+models/
+*.onnx

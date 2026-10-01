@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LA CENTRALITA — Agente de Voz WELUX (Fase 1)</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- LiveKit Client SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <header class="header">
+      <div class="brand">
+        <span class="brand-badge">PILOTO FASE 1 · COSTO CERO</span>
+        <h1 class="brand-title">LA CENTRALITA</h1>
+        <p class="brand-subtitle">WELUX Events Luxembourg · Agente de Voz Telefónico IA</p>
+      </div>
+      <div class="service-badges" id="serviceBadges">
+        <div class="badge" id="badgeLivekit"><span class="dot"></span> LiveKit WebRTC</div>
+        <div class="badge" id="badgeStt"><span class="dot"></span> Deepgram Nova-3</div>
+        <div class="badge" id="badgeLlm"><span class="dot"></span> DeepSeek V3</div>
+        <div class="badge" id="badgeTts"><span class="dot"></span> Piper Local (0€)</div>
+        <div class="badge" id="badgeN8n"><span class="dot"></span> n8n Webhook</div>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- Call Panel -->
+      <section class="call-card">
+        <div class="avatar-container">
+          <div class="pulse-ring" id="pulseRing"></div>
+          <div class="avatar-circle">
+            <svg class="avatar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" x2="12" y1="19" y2="22"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="agent-info">
+          <h2 class="agent-name">Sofía</h2>
+          <p class="agent-role">Recepcionista Virtual · WELUX Events</p>
+        </div>
+
+        <div class="call-status" id="callStatusText">Listo para iniciar llamada de prueba</div>
+        <div class="call-timer" id="callTimer">00:00</div>
+
+        <!-- Controls -->
+        <div class="controls-container">
+          <button id="btnCall" class="btn btn-call" onclick="startCall()">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/>
+            </svg>
+            <span>Llamar al Agente</span>
+          </button>
+          
+          <button id="btnHangup" class="btn btn-hangup" onclick="endCall()" style="display: none;">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+              <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.36 8.78 7.46 7 12 7s8.64 1.78 11.71 4.67c.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29s-.52-.1-.7-.28c-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+            </svg>
+            <span>Colgar</span>
+          </button>
+
+          <button id="btnTestWebhook" class="btn btn-secondary" onclick="testDirectWebhook()">
+            <span>⚡ Probar n8n Webhook</span>
+          </button>
+        </div>
+
+        <!-- Latency / Metrics Box -->
+        <div class="metrics-grid">
+          <div class="metric-item">
+            <span class="metric-label">Latencia percibida</span>
+            <span class="metric-val" id="metricLatency">&lt; 850 ms</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Costo por llamada</span>
+            <span class="metric-val text-gold" id="metricCost">0.000 €</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Estado post-llamada</span>
+            <span class="metric-val" id="metricWebhookStatus">En espera</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Real-time Transcript & Lead Panel -->
+      <section class="transcript-card">
+        <div class="tab-header">
+          <button class="tab-btn active" id="tabTranscriptBtn" onclick="switchTab('transcript')">Transcripción en Vivo</button>
+          <button class="tab-btn" id="tabLeadBtn" onclick="switchTab('lead')">Lead Extraído (JSON)</button>
+        </div>
+
+        <div class="tab-content" id="transcriptView">
+          <div class="chat-log" id="chatLog">
+            <div class="chat-msg system">
+              <span>Presiona "Llamar al Agente" y habla por tu micrófono para interactuar con Sofía.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="leadView" style="display: none;">
+          <div class="lead-wrapper">
+            <div class="lead-status-header">
+              <span id="leadStatusBadge" class="lead-badge pending">Pendiente de llamada</span>
+              <span id="leadN8nStatus">Despacho automático a n8n al colgar</span>
+            </div>
+            <pre class="json-box" id="leadJsonDisplay">// El lead estructurado aparecerá aquí automáticamente al colgar la llamada.</pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>WELUX Events · Arquitectura Centralita de Voz con LiveKit + Deepgram + DeepSeek + Piper + n8n</p>
+    </footer>
+  </div>
+
+  <audio id="remoteAudio" autoplay></audio>
+  <script src="/static/app.js"></script>
+</body>
+</html>
