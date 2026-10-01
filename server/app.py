@@ -1,39 +1,47 @@
 """Servidor Backend de La Centralita (WELUX Events).
 
 Responsabilidades:
-  - Generación de tokens JWT seguros para LiveKit Cloud (WebRTC).
-  - Healthcheck y diagnóstico de credenciales del pipeline.
-  - WebSocket Hub (/ws/monitor) para retransmisión en tiempo real al Monitor del Cliente.
-  - Endpoints REST (/api/calls, /api/leads) para historial persistente y sincronización.
-  - Despacho y verificación de webhooks hacia n8n y DocuSeal.
-  - Logging estructurado en JSON para observabilidad y auditoría.
-  - Headers de seguridad HTTP estrictos y esquemas de validación Pydantic v2.
+  - Emisión de tokens JWT de LiveKit (WebRTC) para operadores autenticados y,
+    opcionalmente, para la demo pública (sala única, TTL corto, rate-limit).
+  - Healthcheck mínimo público y diagnóstico detallado autenticado.
+  - WebSocket Hub (/ws/monitor) para el panel en vivo (autenticación por mensaje).
+  - Endpoints REST con PII (/api/calls, /api/leads, ...) SIEMPRE autenticados.
+  - Webhook DocuSeal verificado con secreto compartido.
+  - Logging estructurado en JSON sin PII y cabeceras de seguridad estrictas.
+
+Modelo de autenticación: un único secreto CENTRALITA_AUTH_TOKEN (>= 24 caracteres)
+definido en el entorno. No existe ningún token de fallback en el código: si no está
+configurado, todos los endpoints protegidos responden 503 (fail-closed).
 """
 
+import asyncio
+import hmac
 import json
 import logging
+import re
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Deque, Dict, List, Optional, Set, Union
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from livekit import api
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent.config import Config
-from agent.post_call import PostCallProcessor
-from agent.sheets_sync import GoogleSheetsSync
 from agent.email_notify import EmailNotifier
+from agent.post_call import PostCallProcessor, mask_phone
+from agent.sheets_sync import GoogleSheetsSync
 
 # ==============================================================================
-# 1. LOGGING ESTRUCTURADO EN JSON (OBSERVABILIDAD AUDITABLE)
+# 1. LOGGING ESTRUCTURADO EN JSON (OBSERVABILIDAD AUDITABLE, SIN PII)
 # ==============================================================================
 
 class StructuredJsonFormatter(logging.Formatter):
@@ -66,31 +74,104 @@ if not logger.handlers:
 # 2. ESQUEMAS DE VALIDACIÓN PYDANTIC V2
 # ==============================================================================
 
+ALLOWED_EVENT_TYPES: Set[str] = {"call_started", "transcript_delta", "call_ended", "call_status"}
+
+
 class CallEventModel(BaseModel):
-    """Esquema estricto para eventos de llamadas (Pydantic v2)."""
+    """Esquema estricto para eventos emitidos por el worker de voz."""
     model_config = ConfigDict(extra="forbid")
 
-    type: str = Field(..., min_length=1, max_length=64, description="Tipo de evento (ej. call_started, call_ended, transcript)")
-    call_id: Optional[str] = Field(default=None, max_length=128, description="Identificador único de la llamada")
-    timestamp: Optional[str] = Field(default=None, max_length=64, description="Timestamp ISO del evento")
-    status: Optional[str] = Field(default=None, max_length=64, description="Estado de la llamada (active, ended, etc.)")
-    room: Optional[str] = Field(default=None, max_length=128, description="Sala LiveKit WebRTC")
-    duration: Optional[str] = Field(default=None, max_length=32, description="Duración en formato MM:SS o segundos")
-    transcript: Optional[Any] = Field(default=None, description="Transcripción de la llamada o fragmento")
-    lead: Optional[Dict[str, Any]] = Field(default=None, description="Objeto de lead extraído")
-    agent: Optional[str] = Field(default=None, max_length=64, description="Nombre o identificador del agente")
+    type: str = Field(..., min_length=1, max_length=64, description="call_started | transcript_delta | call_ended | call_status")
+    call_id: Optional[str] = Field(default=None, max_length=128)
+    timestamp: Optional[str] = Field(default=None, max_length=64)
+    status: Optional[str] = Field(default=None, max_length=64)
+    room: Optional[str] = Field(default=None, max_length=128)
+    duration: Optional[str] = Field(default=None, max_length=32)
+    role: Optional[str] = Field(default=None, max_length=16, description="user | assistant (transcript_delta)")
+    text: Optional[str] = Field(default=None, max_length=4000, description="Texto de un turno (transcript_delta)")
+    transcript: Optional[Any] = Field(default=None, description="Transcripción completa (call_ended)")
+    lead: Optional[Dict[str, Any]] = Field(default=None, description="Lead extraído (call_ended)")
+    agent: Optional[str] = Field(default=None, max_length=64)
+
+    @field_validator("type")
+    @classmethod
+    def _known_type(cls, value: str) -> str:
+        if value not in ALLOWED_EVENT_TYPES:
+            raise ValueError(f"tipo de evento no soportado: {value}")
+        return value
+
+    @field_validator("role")
+    @classmethod
+    def _known_role(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in ("user", "assistant"):
+            raise ValueError("role debe ser 'user' o 'assistant'")
+        return value
 
 
 class DocuSealWebhookModel(BaseModel):
     """Esquema flexible pero tipado para eventos webhook de DocuSeal."""
     model_config = ConfigDict(extra="allow")
 
-    event_type: Optional[str] = Field(default=None, max_length=64, description="Nombre del evento DocuSeal")
-    type: Optional[str] = Field(default=None, max_length=64, description="Alias para event_type")
-    data: Optional[Dict[str, Any]] = Field(default=None, description="Cuerpo del documento o sumisión")
-    submission: Optional[Dict[str, Any]] = Field(default=None, description="Datos de sumisión")
-    submission_id: Optional[Union[str, int]] = Field(default=None, description="ID de la sumisión")
-    id: Optional[Union[str, int]] = Field(default=None, description="ID del documento")
+    event_type: Optional[str] = Field(default=None, max_length=64)
+    type: Optional[str] = Field(default=None, max_length=64)
+    data: Optional[Dict[str, Any]] = Field(default=None)
+    submission: Optional[Dict[str, Any]] = Field(default=None)
+    submission_id: Optional[Union[str, int]] = Field(default=None)
+    id: Optional[Union[str, int]] = Field(default=None)
+
+
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+_PHONE_RE = re.compile(r"^\+?[0-9][0-9 ().-]{4,22}[0-9]$")
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
+
+def _clean_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    return " ".join(_CONTROL_CHARS.sub(" ", value).split())
+
+
+class ClientIdentifyModel(BaseModel):
+    """Formulario público de identificación del cliente (portal)."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    nombre: str = Field(..., min_length=2, max_length=100)
+    telefono: str = Field(..., min_length=6, max_length=24)
+    email: Optional[str] = Field(default=None, max_length=120)
+    empresa: Optional[str] = Field(default=None, max_length=100)
+    motivo: Optional[str] = Field(default="Identificación en portal web", max_length=150)
+    detalles: Optional[str] = Field(default=None, max_length=500)
+    consentimiento: bool = Field(..., description="Consentimiento RGPD explícito para tratar los datos")
+
+    @field_validator("nombre", "empresa", "motivo", "detalles")
+    @classmethod
+    def _strip_control(cls, value: Optional[str]) -> Optional[str]:
+        return _clean_text(value)
+
+    @field_validator("telefono")
+    @classmethod
+    def _valid_phone(cls, value: str) -> str:
+        value = _clean_text(value) or ""
+        digits = re.sub(r"\D", "", value)
+        if not _PHONE_RE.match(value) or not 6 <= len(digits) <= 15:
+            raise ValueError("teléfono no válido (use formato internacional, p. ej. +352 691 123 456)")
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def _valid_email(cls, value: Optional[str]) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        if not _EMAIL_RE.match(value):
+            raise ValueError("email no válido")
+        return value.lower()
+
+    @field_validator("consentimiento")
+    @classmethod
+    def _consent_required(cls, value: bool) -> bool:
+        if value is not True:
+            raise ValueError("se requiere consentimiento explícito para registrar los datos")
+        return value
 
 
 # ==============================================================================
@@ -99,46 +180,35 @@ class DocuSealWebhookModel(BaseModel):
 
 app = FastAPI(
     title="La Centralita - Backend & Event Hub (WELUX)",
-    description=(
-        "Backend de producción y orquestador en tiempo real para La Centralita. "
-        "Soporta emisión de tokens LiveKit WebRTC, streaming WebSocket a monitores NOC, "
-        "gestión persistente de llamadas/leads, webhooks de firma digital eIDAS con DocuSeal "
-        "y sincronización bidireccional con n8n y Twenty CRM."
-    ),
-    version="1.2.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    description="Backend y bus de eventos en tiempo real de La Centralita.",
+    version="1.3.0",
+    docs_url="/api/docs" if Config.ENABLE_API_DOCS else None,
+    redoc_url="/api/redoc" if Config.ENABLE_API_DOCS else None,
+    openapi_url="/api/openapi.json" if Config.ENABLE_API_DOCS else None,
 )
 
-# CORS middleware restringido (H-001)
+# CORS: lista explícita (sin comodines ni regex). Se amplía con CORS_ALLOWED_ORIGINS.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://yoyocubano.github.io",
-        "https://la-centralita.web.app",
-        "https://la-centralita--preview-j4bp6lio.web.app",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-    ],
+    allow_origins=Config.CORS_ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
+    max_age=600,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PANEL_DIR = PROJECT_ROOT / "panel"
-WEB_DIR = PROJECT_ROOT / "web"
 
-# Constantes de seguridad y autenticación (H-002, H-003, H-004)
+# Salas a las que un operador autenticado puede pedir token.
 ALLOWED_ROOMS: Set[str] = {"centralita-test", "centralita-demo"}
-ALLOWED_EVENT_KEYS: Set[str] = {
-    "type", "call_id", "timestamp", "status", "room", "duration", "transcript", "lead", "agent"
-}
+ALLOWED_EVENT_KEYS: Set[str] = set(CallEventModel.model_fields.keys())
+
+MAX_MONITOR_CONNECTIONS = 50
+WS_AUTH_TIMEOUT_SECONDS = 5.0
+WS_IDLE_TIMEOUT_SECONDS = 90.0
 
 
-# Middleware global de seguridad HTTP y logging de latencia
 @app.middleware("http")
 async def security_and_profiling_middleware(request: Request, call_next):
     request_id = str(uuid.uuid4())
@@ -148,32 +218,31 @@ async def security_and_profiling_middleware(request: Request, call_next):
 
     process_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
-    # Inyección de cabeceras de endurecimiento HTTP
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["X-Frame-Options"] = "DENY"
+    # X-XSS-Protection está obsoleta y puede introducir fugas: OWASP recomienda "0" + CSP.
+    response.headers["X-XSS-Protection"] = "0"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), geolocation=(), microphone=(self)"
     response.headers["X-Request-ID"] = request_id
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
 
-    # Log estructurado
-    client_ip = request.client.host if request.client else "unknown"
-    extra_info = {
-        "request_id": request_id,
-        "method": request.method,
-        "path": request.url.path,
-        "status_code": response.status_code,
-        "latency_ms": process_time_ms,
-        "client_ip": client_ip,
-    }
+    # Log estructurado (solo ruta, nunca query string: podría contener datos sensibles)
     logger.info(
         f"{request.method} {request.url.path} -> {response.status_code} ({process_time_ms}ms)",
-        extra={"extra_data": extra_info},
+        extra={"extra_data": {
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "latency_ms": process_time_ms,
+        }},
     )
-
     return response
 
 
-# Handlers estándar para errores HTTP estructurados
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
@@ -185,69 +254,119 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "path": request.url.path,
         },
+        headers=getattr(exc, "headers", None),
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # No se devuelve el valor recibido ('input'): podría contener PII.
+    errors = [
+        {"loc": list(err.get("loc", [])), "msg": err.get("msg", ""), "type": err.get("type", "")}
+        for err in exc.errors()
+    ]
     return JSONResponse(
         status_code=422,
         content={
             "error": True,
             "status_code": 422,
             "detail": "Error de validación en el payload recibido",
-            "errors": exc.errors(),
+            "errors": errors,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "path": request.url.path,
         },
     )
 
 
+# ------------------------------------------------------------------------------
+# Autenticación
+# ------------------------------------------------------------------------------
+
 def get_authorized_tokens() -> Set[str]:
-    """Conjunto de tokens válidos para autenticación interna."""
-    tokens = {
-        Config.AUTH_TOKEN,
-        Config.LIVEKIT_API_SECRET,
-        "centralita-secure-token-2026",
-    }
-    return {t for t in tokens if t}
+    """Tokens válidos: exclusivamente CENTRALITA_AUTH_TOKEN si es suficientemente fuerte."""
+    return {Config.AUTH_TOKEN} if Config.auth_token_is_strong() else set()
 
 
-def verify_auth_header(authorization: str | None = Header(None)) -> bool:
-    """Exige y valida el header Authorization: Bearer <token> (H-002 / H-003)."""
+def is_valid_token(candidate: Optional[str]) -> bool:
+    if not candidate:
+        return False
+    # compare_digest: comparación en tiempo constante (sin oráculo de timing).
+    return any(hmac.compare_digest(candidate.encode(), t.encode()) for t in get_authorized_tokens())
+
+
+def verify_auth_header(authorization: Optional[str] = Header(None)) -> bool:
+    """Exige `Authorization: Bearer <CENTRALITA_AUTH_TOKEN>` (401 / 403 / 503)."""
+    if not get_authorized_tokens():
+        raise HTTPException(status_code=503, detail="Autenticación no configurada en el servidor (CENTRALITA_AUTH_TOKEN).")
     if not authorization:
-        raise HTTPException(status_code=401, detail="Header Authorization requerido")
+        raise HTTPException(status_code=401, detail="Header Authorization requerido", headers={"WWW-Authenticate": "Bearer"})
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(
             status_code=401,
             detail="Formato de Authorization inválido. Formato esperado: Bearer <token>",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    valid_tokens = get_authorized_tokens()
-    if token not in valid_tokens:
+    if not is_valid_token(token.strip()):
         raise HTTPException(status_code=403, detail="Token no autorizado")
     return True
 
 
-# Almacenamiento en memoria para llamadas y leads de la sesión activa
-CALLS_DATABASE: List[dict] = []
-LEADS_DATABASE: List[dict] = []
+require_auth = Depends(verify_auth_header)
+
+
+# ------------------------------------------------------------------------------
+# Rate limiting en memoria (por IP y ventana deslizante)
+# ------------------------------------------------------------------------------
+
+class SlidingWindowRateLimiter:
+    def __init__(self, max_requests: int, window_seconds: float) -> None:
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._hits: Dict[str, Deque[float]] = defaultdict(deque)
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        hits = self._hits[key]
+        while hits and now - hits[0] > self.window_seconds:
+            hits.popleft()
+        if len(hits) >= self.max_requests:
+            return False
+        hits.append(now)
+        return True
+
+    def reset(self) -> None:
+        self._hits.clear()
+
+
+identify_limiter = SlidingWindowRateLimiter(max_requests=5, window_seconds=600)
+demo_token_limiter = SlidingWindowRateLimiter(max_requests=3, window_seconds=600)
+
+
+def client_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+# ------------------------------------------------------------------------------
+# Estado en memoria de la sesión (acotado para evitar crecimiento ilimitado)
+# ------------------------------------------------------------------------------
+
+CALLS_DATABASE: Deque[dict] = deque(maxlen=500)
+LEADS_DATABASE: Deque[dict] = deque(maxlen=500)
 
 
 class MonitorConnectionManager:
-    """Administra las conexiones WebSocket con los paneles de monitorización de los clientes."""
+    """Administra las conexiones WebSocket autenticadas de los paneles."""
 
     def __init__(self):
         self.active_connections: List[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
+    async def register(self, websocket: WebSocket):
         self.active_connections.append(websocket)
         logger.info(
-            f"Monitor conectado al backend (Total: {len(self.active_connections)})",
+            "Monitor autenticado",
             extra={"extra_data": {"action": "ws_connect", "monitors": len(self.active_connections)}},
         )
-        # Enviar estado inicial
         await websocket.send_json({
             "type": "connection_established",
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -259,17 +378,17 @@ class MonitorConnectionManager:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
             logger.info(
-                f"Monitor desconectado (Restantes: {len(self.active_connections)})",
+                "Monitor desconectado",
                 extra={"extra_data": {"action": "ws_disconnect", "monitors": len(self.active_connections)}},
             )
 
     async def broadcast(self, message: dict):
-        """Difunde un evento en streaming a todos los monitores web conectados."""
+        """Difunde un evento a todos los monitores autenticados."""
         for connection in list(self.active_connections):
             try:
                 await connection.send_json(message)
             except Exception as e:
-                logger.warning(f"Error al enviar mensaje a monitor: {e}")
+                logger.warning(f"Error al enviar mensaje a monitor: {type(e).__name__}")
                 self.disconnect(connection)
 
 
@@ -282,171 +401,222 @@ monitor_hub = MonitorConnectionManager()
 
 @app.get("/api/status", tags=["Salud & Diagnóstico"])
 async def get_status():
-    """Devuelve el estado de las credenciales y servicios del sistema."""
+    """Healthcheck público mínimo: no expone URLs, claves ni detalle de configuración."""
     checks = Config.validate()
     return {
         "status": "ready" if all(checks.values()) else "needs_configuration",
-        "services": checks,
-        "livekit_url": Config.LIVEKIT_URL or "No configurado",
-        "n8n_webhook": Config.N8N_WEBHOOK_URL or "No configurado",
+        "auth_configured": checks["CENTRALITA_AUTH_TOKEN"],
+        "public_demo_enabled": Config.PUBLIC_DEMO_ENABLED,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/status/details", tags=["Salud & Diagnóstico"], dependencies=[require_auth])
+async def get_status_details():
+    """Diagnóstico detallado del pipeline (solo operadores autenticados)."""
+    sheets = GoogleSheetsSync()
+    return {
+        "services": Config.validate(),
+        "google_sheets_configured": sheets.is_configured,
+        "smtp_configured": EmailNotifier().is_configured,
+        "tts_provider": Config.TTS_PROVIDER,
+        "tts_fallback": Config.TTS_FALLBACK_PROVIDER,
+        "n8n_configured": bool(Config.N8N_WEBHOOK_URL),
         "monitors_connected": len(monitor_hub.active_connections),
     }
 
 
-@app.get("/api/token", tags=["WebRTC LiveKit"])
-async def get_token(
-    room: str = Query(default="centralita-test", description="Nombre de la sala LiveKit"),
-    identity: str = Query(default="", description="ID único del participante"),
-    name: str = Query(default="Cliente Web", description="Nombre legible del participante"),
-    authorization: str | None = Header(None),
-):
-    """Genera un token JWT de LiveKit para que el navegador se una a la sala (H-002 protegido)."""
-    # 1. Validar autenticación con header Bearer
-    verify_auth_header(authorization)
-
-    # 2. Restringir ámbito de sala a salas autorizadas (H-002)
-    if room not in ALLOWED_ROOMS:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Acceso denegado: la sala '{room}' no está autorizada. Salas permitidas: {', '.join(sorted(ALLOWED_ROOMS))}",
-        )
-
-    if not Config.LIVEKIT_API_KEY or not Config.LIVEKIT_API_SECRET:
-        raise HTTPException(
-            status_code=503,
-            detail="LIVEKIT_API_KEY y LIVEKIT_API_SECRET no están configuradas en el servidor.",
-        )
-
-    client_id = identity or f"cliente-{uuid.uuid4().hex[:6]}"
-
-    token = (
+def _livekit_token(room: str, identity: str, name: str, ttl: timedelta, can_publish_data: bool) -> str:
+    return (
         api.AccessToken(Config.LIVEKIT_API_KEY, Config.LIVEKIT_API_SECRET)
-        .with_identity(client_id)
+        .with_identity(identity)
         .with_name(name)
+        .with_ttl(ttl)
         .with_grants(
             api.VideoGrants(
                 room_join=True,
                 room=room,
                 can_publish=True,
                 can_subscribe=True,
-                can_publish_data=True,
+                can_publish_data=can_publish_data,
             )
         )
         .to_jwt()
     )
 
-    return {
-        "token": token,
-        "url": Config.LIVEKIT_URL,
-        "room": room,
-        "identity": client_id,
-    }
+
+@app.get("/api/token", tags=["WebRTC LiveKit"], dependencies=[require_auth])
+async def get_token(
+    room: str = Query(default="centralita-test", max_length=64),
+    identity: str = Query(default="", max_length=64, pattern=r"^[A-Za-z0-9_.-]*$"),
+    name: str = Query(default="Cliente Web", max_length=64),
+):
+    """Token JWT de LiveKit (TTL 1 h) para operadores autenticados y salas autorizadas."""
+    if room not in ALLOWED_ROOMS:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Acceso denegado: la sala '{room}' no está autorizada. Salas permitidas: {', '.join(sorted(ALLOWED_ROOMS))}",
+        )
+    if not Config.LIVEKIT_API_KEY or not Config.LIVEKIT_API_SECRET:
+        raise HTTPException(status_code=503, detail="LiveKit no configurado en el servidor.")
+
+    client_id = identity or f"cliente-{uuid.uuid4().hex[:8]}"
+    token = _livekit_token(room, client_id, _clean_text(name) or "Cliente Web", timedelta(hours=1), True)
+    return {"token": token, "url": Config.LIVEKIT_URL, "room": room, "identity": client_id}
+
+
+@app.post("/api/public/demo-token", tags=["WebRTC LiveKit"])
+async def get_public_demo_token(request: Request):
+    """Token efímero para la demo pública de la landing (desactivado por defecto).
+
+    Sala fija, TTL 10 min, sin canal de datos y máximo 3 tokens / 10 min por IP.
+    Nunca requiere ni expone el secreto interno en el navegador.
+    """
+    if not Config.PUBLIC_DEMO_ENABLED:
+        raise HTTPException(status_code=404, detail="Demo pública desactivada.")
+    if not Config.LIVEKIT_API_KEY or not Config.LIVEKIT_API_SECRET:
+        raise HTTPException(status_code=503, detail="LiveKit no configurado en el servidor.")
+    if not demo_token_limiter.allow(client_key(request)):
+        raise HTTPException(status_code=429, detail="Demasiadas solicitudes. Inténtelo más tarde.")
+
+    identity = f"demo-{uuid.uuid4().hex[:10]}"
+    token = _livekit_token(Config.PUBLIC_DEMO_ROOM, identity, "Visitante Demo", timedelta(minutes=10), False)
+    return {"token": token, "url": Config.LIVEKIT_URL, "room": Config.PUBLIC_DEMO_ROOM, "identity": identity}
+
+
+def _origin_allowed(websocket: WebSocket) -> bool:
+    origin = websocket.headers.get("origin")
+    # Clientes no-navegador (worker, tests) no envían Origin; el token sigue siendo obligatorio.
+    return origin is None or origin.rstrip("/") in Config.CORS_ALLOWED_ORIGINS
 
 
 @app.websocket("/ws/monitor")
-async def monitor_websocket_endpoint(
-    websocket: WebSocket,
-    token: str = Query(default=""),
-):
-    """Canal bidireccional WebSocket para el Monitor del Cliente con validación de token (H-004)."""
-    valid_tokens = get_authorized_tokens()
-    if not token or token not in valid_tokens:
-        logger.warning(
-            "Rechazo de conexión WebSocket no autorizada (H-004)",
-            extra={"extra_data": {"security_event": "ws_unauthorized_attempt"}},
-        )
-        await websocket.close(code=4001, reason="Unauthorized")
+async def monitor_websocket_endpoint(websocket: WebSocket):
+    """Canal WebSocket del panel.
+
+    Protocolo: el cliente conecta SIN token en la URL (evita que quede en logs de
+    proxies) y envía como primer mensaje {"action": "auth", "token": "..."} en
+    menos de 5 s. Token inválido -> cierre 4001. Origen no permitido -> 4003.
+    """
+    if not _origin_allowed(websocket):
+        await websocket.close(code=4003, reason="Origin not allowed")
+        return
+    if len(monitor_hub.active_connections) >= MAX_MONITOR_CONNECTIONS:
+        await websocket.close(code=4029, reason="Too many monitors")
         return
 
-    await monitor_hub.connect(websocket)
+    await websocket.accept()
+    try:
+        first = await asyncio.wait_for(websocket.receive_text(), timeout=WS_AUTH_TIMEOUT_SECONDS)
+        msg = json.loads(first)
+        token = msg.get("token") if isinstance(msg, dict) and msg.get("action") == "auth" else None
+    except (asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
+        token = None
+
+    if not is_valid_token(token):
+        logger.warning(
+            "Rechazo de conexión WebSocket no autorizada",
+            extra={"extra_data": {"security_event": "ws_unauthorized_attempt"}},
+        )
+        try:
+            await websocket.close(code=4001, reason="Unauthorized")
+        except RuntimeError:
+            pass
+        return
+
+    await monitor_hub.register(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
+            data = await asyncio.wait_for(websocket.receive_text(), timeout=WS_IDLE_TIMEOUT_SECONDS)
             try:
                 msg = json.loads(data)
-                # Si el monitor solicita ping o sincronización
-                if msg.get("action") == "ping":
-                    await websocket.send_json({"type": "pong", "timestamp": datetime.now(timezone.utc).isoformat()})
-                elif msg.get("action") == "get_recent_data":
-                    await websocket.send_json({
-                        "type": "recent_data",
-                        "calls": CALLS_DATABASE[-10:],
-                        "leads": LEADS_DATABASE[-10:],
-                    })
             except json.JSONDecodeError:
-                pass
-    except WebSocketDisconnect:
+                continue
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("action") == "ping":
+                await websocket.send_json({"type": "pong", "timestamp": datetime.now(timezone.utc).isoformat()})
+            elif msg.get("action") == "get_recent_data":
+                await websocket.send_json({
+                    "type": "recent_data",
+                    "calls": list(CALLS_DATABASE)[-10:],
+                    "leads": list(LEADS_DATABASE)[-10:],
+                })
+    except (WebSocketDisconnect, asyncio.TimeoutError):
+        pass
+    finally:
         monitor_hub.disconnect(websocket)
+        try:
+            await websocket.close()
+        except RuntimeError:
+            pass
 
 
-@app.post("/api/call-event", tags=["Eventos de Voz"])
-async def receive_call_event(
-    event: dict,
-    authorization: str | None = Header(None),
-):
-    """Recibe eventos del worker de voz con autenticación y validación de claves (H-003)."""
-    # 1. Requerir header Authorization
-    verify_auth_header(authorization)
-
-    # 2. Validar estructura del evento con whitelist de claves
+@app.post("/api/call-event", tags=["Eventos de Voz"], dependencies=[require_auth])
+async def receive_call_event(event: dict):
+    """Recibe eventos del worker de voz (whitelist de claves + esquema estricto)."""
     if not isinstance(event, dict) or "type" not in event:
-        raise HTTPException(
-            status_code=400,
-            detail="Estructura de evento inválida. El campo 'type' es requerido.",
-        )
+        raise HTTPException(status_code=400, detail="Estructura de evento inválida. El campo 'type' es requerido.")
 
     extra_keys = set(event.keys()) - ALLOWED_EVENT_KEYS
     if extra_keys:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Payload contiene claves no permitidas: {', '.join(sorted(extra_keys))}",
-        )
+        raise HTTPException(status_code=400, detail=f"Payload contiene claves no permitidas: {', '.join(sorted(extra_keys))}")
 
-    # Validar modelo con Pydantic v2
     try:
         validated_event = CallEventModel.model_validate(event)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Validación de campos fallida: {e}")
 
-    event_type = validated_event.type
     event_dict = validated_event.model_dump(exclude_none=True)
     event_dict["server_timestamp"] = datetime.now(timezone.utc).isoformat()
 
-    if event_type == "call_ended":
+    if validated_event.type == "call_ended":
         CALLS_DATABASE.append(event_dict)
-        if validated_event.lead and isinstance(validated_event.lead, dict):
+        if validated_event.lead:
             LEADS_DATABASE.append(validated_event.lead)
 
-    # Difundir en vivo a todos los monitores web del cliente
     await monitor_hub.broadcast(event_dict)
     return {"status": "broadcasted", "receivers": len(monitor_hub.active_connections)}
 
 
 @app.post("/api/docuseal/webhook", tags=["DocuSeal & Firmas"])
-async def docuseal_webhook(payload: dict):
-    """Webhook para recibir eventos de contratos DocuSeal (firma completada, enviado, visto)."""
+async def docuseal_webhook(request: Request, payload: dict):
+    """Webhook de DocuSeal. Exige la cabecera secreta configurada en DocuSeal
+    (DOCUSEAL_WEBHOOK_HEADER, por defecto X-Docuseal-Secret)."""
+    if not Config.DOCUSEAL_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook DocuSeal no configurado (DOCUSEAL_WEBHOOK_SECRET).")
+    provided = request.headers.get(Config.DOCUSEAL_WEBHOOK_HEADER, "")
+    if not hmac.compare_digest(provided.encode(), Config.DOCUSEAL_WEBHOOK_SECRET.encode()):
+        logger.warning("Webhook DocuSeal rechazado", extra={"extra_data": {"security_event": "docuseal_bad_secret"}})
+        raise HTTPException(status_code=401, detail="Firma del webhook inválida")
+
     try:
         DocuSealWebhookModel.model_validate(payload)
-    except Exception as err:
-        logger.warning(f"DocuSeal payload con estructura no estándar: {err}")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Payload DocuSeal inválido")
 
-    event_type = payload.get("event_type") or payload.get("type", "submission.updated")
+    event_type = payload.get("event_type") or payload.get("type") or "submission.updated"
     submission = payload.get("data") or payload.get("submission") or payload
-    submission_id = submission.get("id") or submission.get("submission_id") if isinstance(submission, dict) else None
-    status_label = "FIRMADO" if event_type in ("submission.completed", "completed") else "ENVIADO"
+    submission_id = None
+    if isinstance(submission, dict):
+        submission_id = submission.get("submission_id") or submission.get("id")
+    status_map = {
+        "submission.completed": "FIRMADO", "form.completed": "FIRMADO", "completed": "FIRMADO",
+        "submission.created": "ENVIADO", "form.viewed": "VISTO", "form.started": "VISTO",
+        "submission.expired": "EXPIRADO", "form.declined": "RECHAZADO", "submission.archived": "ARCHIVADO",
+    }
+    status_label = status_map.get(str(event_type), "ENVIADO")
 
     logger.info(
-        f"DocuSeal webhook recibido: evento={event_type}, id={submission_id}, status={status_label}",
+        "DocuSeal webhook recibido",
         extra={"extra_data": {"event": event_type, "submission_id": submission_id, "status": status_label}},
     )
 
-    # Actualizar estado en memoria
     for lead in LEADS_DATABASE:
-        if lead.get("docuseal_id") == submission_id or lead.get("id") == submission_id:
+        if submission_id is not None and str(lead.get("docuseal_id")) == str(submission_id):
             lead["docuseal_status"] = status_label
-            lead["docuseal_signed_at"] = datetime.now(timezone.utc).isoformat()
+            lead["docuseal_updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    # Notificar a los paneles conectados vía WebSocket
     await monitor_hub.broadcast({
         "type": "docuseal_update",
         "submission_id": submission_id,
@@ -456,40 +626,57 @@ async def docuseal_webhook(payload: dict):
     return {"status": "ok", "event": event_type, "docuseal_status": status_label}
 
 
-@app.get("/api/calls", tags=["Persistencia"])
+@app.get("/api/calls", tags=["Persistencia"], dependencies=[require_auth])
 async def get_calls():
-    """Devuelve el historial de llamadas registradas."""
-    return {"calls": CALLS_DATABASE, "count": len(CALLS_DATABASE)}
-
-
-class ClientIdentifyModel(BaseModel):
-    nombre: str = Field(..., min_length=2, max_length=100)
-    telefono: str = Field(..., min_length=5, max_length=30)
-    email: Optional[str] = Field(default="No especificado", max_length=100)
-    empresa: Optional[str] = Field(default="Particular", max_length=100)
-    motivo: Optional[str] = Field(default="Consulta general", max_length=150)
-    detalles: Optional[str] = Field(default="Identificación desde portal del cliente", max_length=500)
+    """Historial de llamadas de la sesión del servidor (memoria acotada)."""
+    calls = list(CALLS_DATABASE)
+    return {"calls": calls, "count": len(calls), "source": "memory_session"}
 
 
 @app.post("/api/client-identify", tags=["Cliente & Portal"])
-async def client_identify_endpoint(payload: ClientIdentifyModel):
-    """Registra la identificación del cliente, escribe el lead en Google Sheets y notifica a info@weluxevents.com."""
-    lead_dict = payload.model_dump()
-    sheets_sync = GoogleSheetsSync()
-    sync_res = await sheets_sync.sync_lead(lead_dict)
+async def client_identify_endpoint(payload: ClientIdentifyModel, request: Request):
+    """Registra la identificación del cliente: Google Sheets + notificación al dueño + panel.
 
-    # Notificar por correo al dueño en info@weluxevents.com
-    notifier = EmailNotifier()
-    call_info = {
+    Público (formulario del portal) pero con consentimiento RGPD obligatorio,
+    validación estricta y rate-limit por IP (5 / 10 min). La respuesta declara el
+    estado REAL de cada destino (nunca "notificado" si el email quedó en cola).
+    """
+    if not identify_limiter.allow(client_key(request)):
+        raise HTTPException(status_code=429, detail="Demasiadas solicitudes. Inténtelo más tarde.")
+
+    consent_at = datetime.now(timezone.utc).isoformat()
+    sheets_sync = GoogleSheetsSync()
+    lead_dict = {
+        "nombre": payload.nombre,
+        "telefono": payload.telefono,
+        "email": payload.email,
+        "empresa": payload.empresa or "Particular",
+        "motivo": payload.motivo or "Identificación en portal web",
+        "detalles": payload.detalles or "Identificación desde portal del cliente",
+        "timestamp_lux": sheets_sync.get_luxembourg_now(),
+        "agente": "Portal web",
+        "consentimiento_rgpd": consent_at,
+    }
+
+    sync_res = await sheets_sync.sync_lead(lead_dict)
+    email_res = await EmailNotifier().send_post_call_notification({
         "lead": lead_dict,
-        "transcripcion": f"Identificación directa de cliente desde portal web: {payload.nombre} ({payload.telefono}) - Empresa: {payload.empresa}",
+        "transcripcion": "Identificación directa de cliente desde el portal web.",
         "duration_seconds": 0,
         "duration_formatted": "Portal Web",
-        "timestamp_lux": sheets_sync.get_luxembourg_now(),
-    }
-    await notifier.send_post_call_notification(call_info)
+        "timestamp_lux": lead_dict["timestamp_lux"],
+    })
 
-    # Actualizar base de datos en memoria y retransmitir por WebSocket
+    logger.info(
+        "Cliente identificado en portal",
+        extra={"extra_data": {
+            "lead_id": sync_res.get("lead_id"),
+            "phone": mask_phone(payload.telefono),
+            "sheets_status": sync_res.get("status"),
+            "email_status": email_res.get("status"),
+        }},
+    )
+
     LEADS_DATABASE.append(lead_dict)
     await monitor_hub.broadcast({
         "type": "lead_created",
@@ -497,112 +684,167 @@ async def client_identify_endpoint(payload: ClientIdentifyModel):
         "source": "client_portal_identification",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
+
+    sheets_ok = sync_res.get("status") in ("SYNCED_ONLINE", "ALREADY_SYNCED")
+    email_ok = email_res.get("status") == "SENT"
     return {
-        "status": "ok",
-        "message": "Identificación registrada y notificada con éxito",
+        "status": "ok" if sheets_ok and email_ok else "partial",
+        "message": "Identificación registrada" if sheets_ok else "Identificación recibida; pendiente de sincronizar",
         "lead_id": sync_res.get("lead_id"),
+        "sheets_status": sync_res.get("status"),
+        "email_status": email_res.get("status"),
     }
 
 
-@app.get("/api/leads", tags=["Persistencia"])
+@app.get("/api/leads", tags=["Persistencia"], dependencies=[require_auth])
 async def get_leads():
-    """Devuelve la bandeja de leads extraídos leyendo en vivo desde Google Sheets 'La Centralita — Leads'."""
-    sheets_sync = GoogleSheetsSync()
-    sheet_leads = await sheets_sync.read_leads_from_sheet()
-    if sheet_leads:
-        return {"leads": sheet_leads, "count": len(sheet_leads), "source": "google_sheets_live"}
+    """Leads leídos EN VIVO del Google Sheet. Sin datos simulados.
 
-    # Si la lista en memoria tiene elementos (ej. llamada recién terminada o simulación activa)
-    if LEADS_DATABASE:
-        return {"leads": LEADS_DATABASE, "count": len(LEADS_DATABASE), "source": "memory_live"}
+    - Sheet OK                -> source="google_sheets_live" (aunque esté vacío).
+    - Sheet caído / sin config -> source="memory_session", degraded=true y el motivo:
+      solo los leads de ESTA sesión del servidor; el panel lo muestra como aviso.
+    """
+    result = await GoogleSheetsSync().read_leads()
+    if result.status == "ok":
+        return {
+            "leads": result.leads,
+            "count": len(result.leads),
+            "source": "google_sheets_live",
+            "degraded": False,
+            "rows_needing_repair": result.rows_needing_repair,
+        }
 
-    return {"leads": [], "count": 0, "source": "google_sheets_live", "status": "empty"}
+    session_leads = list(LEADS_DATABASE)
+    return {
+        "leads": session_leads,
+        "count": len(session_leads),
+        "source": "memory_session",
+        "degraded": True,
+        "sheet_status": result.status,
+        "sheet_error": result.error,
+    }
 
 
-@app.get("/api/system/internal", tags=["Métricas Internas & ROI"])
+class LeadStageModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stage: str = Field(..., pattern=r"^(nuevo|contactado|agendado|ganado)$")
+
+
+@app.post("/api/leads/{lead_id}/stage", tags=["Persistencia"], dependencies=[require_auth])
+async def update_lead_stage(lead_id: str, payload: LeadStageModel):
+    """Cambia la etapa comercial de un lead directamente en el Google Sheet."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", lead_id):
+        raise HTTPException(status_code=400, detail="lead_id inválido")
+    try:
+        result = await GoogleSheetsSync().update_stage(lead_id, payload.stage)
+    except Exception as exc:
+        logger.error("Error actualizando etapa en Sheets", extra={"extra_data": {"error": type(exc).__name__}})
+        raise HTTPException(status_code=502, detail="Google Sheets no disponible; la etapa no se ha guardado.")
+    if result == "not_configured":
+        raise HTTPException(status_code=503, detail="Google Sheets no configurado; la etapa no se puede persistir.")
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Lead no encontrado en el Sheet.")
+    return {"status": "updated", "lead_id": lead_id, "stage": payload.stage}
+
+
+APPOINTMENT_REQUESTS_FILE = PROJECT_ROOT / "data" / "appointment_requests.jsonl"
+
+
+@app.get("/api/appointments", tags=["Agenda"], dependencies=[require_auth])
+async def get_appointment_requests():
+    """Solicitudes de cita registradas por el agente de voz (pendientes de confirmación)."""
+    items: List[dict] = []
+    if APPOINTMENT_REQUESTS_FILE.exists():
+        for line in APPOINTMENT_REQUESTS_FILE.read_text(encoding="utf-8").splitlines()[-200:]:
+            try:
+                items.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    items.reverse()
+    return {"appointments": items, "count": len(items), "source": "agent_requests"}
+
+
+@app.get("/api/system/internal", tags=["Métricas Internas & ROI"], dependencies=[require_auth])
 async def get_internal_system_status():
-    """Panel de control interno: ahorro en tiempo, ahorro financiero y métricas de infraestructura."""
-    # Métricas de ahorro calculadas contra salario recepcionista Luxemburgo (~3.200 €/mes = ~22 €/hora)
+    """Métricas internas de la sesión del servidor (estimaciones declaradas como tales)."""
     total_calls = len(CALLS_DATABASE)
     total_leads = len(LEADS_DATABASE)
-    # Estimación: cada llamada atendida + gestión de lead ahorra 15 minutos de trabajo manual
+    # Supuesto: cada llamada atendida ahorra 15 min de trabajo manual a ~22 €/h (recepcionista LU).
     horas_ahorradas = round((total_calls * 15) / 60, 2)
-    ahorro_euros = round(horas_ahorradas * 22.0, 2)
-    costo_ia_total = round(total_calls * 0.00445, 4)
 
     queue_path = PROJECT_ROOT / "data" / "leads_queue.json"
     queue_count = 0
     if queue_path.exists():
         try:
-            with open(queue_path, "r", encoding="utf-8") as f:
-                queue_count = len(json.load(f))
+            queue_count = len(json.loads(queue_path.read_text(encoding="utf-8")))
         except Exception:
             pass
 
     return {
         "sistema": "La Centralita NOC Internal Metrics",
+        "ambito": "sesion_actual_del_servidor",
         "tiempo_ahorrado_horas": horas_ahorradas,
-        "dinero_ahorrado_eur": ahorro_euros,
-        "costo_ia_acumulado_usd": costo_ia_total,
+        "dinero_ahorrado_eur": round(horas_ahorradas * 22.0, 2),
+        "costo_ia_acumulado_usd": round(total_calls * 0.00445, 4),
         "llamadas_totales_atendidas": total_calls,
         "leads_convertidos": total_leads,
         "leads_en_cola_sheets": queue_count,
+        "supuestos": "15 min ahorrados por llamada a 22 €/h; coste IA estimado 0,00445 USD/llamada",
         "infraestructura": {
-            "webrtc": "LiveKit Cloud (Build Tier)",
-            "stt": "Deepgram Nova-3 (Latencia ~180ms)",
+            "webrtc": "LiveKit Cloud",
+            "stt": "Deepgram Nova-3",
             "llm": "DeepSeek V3 (Chat API)",
-            "tts": "Piper TTS (Local ONNX, $0 cost)",
-            "crm": "Twenty CRM",
-            "firmas": "DocuSeal eIDAS",
-        }
+            "tts": f"{Config.TTS_PROVIDER} (respaldo: {Config.TTS_FALLBACK_PROVIDER})",
+            "crm": "Google Sheets (Twenty CRM: pendiente)",
+            "firmas": "DocuSeal",
+        },
     }
 
 
-@app.post("/api/test-webhook", tags=["Diagnóstico & Webhook"])
+@app.post("/api/test-webhook", tags=["Diagnóstico & Webhook"], dependencies=[require_auth])
 async def test_webhook():
-    """Envía un lead de prueba simulado directamente a n8n para verificar el flujo."""
-    processor = PostCallProcessor()
+    """Ejecuta el pipeline post-llamada con una transcripción de PRUEBA.
+
+    Marcado `simulated=true`: no escribe en el Sheet de producción, no envía
+    email ni crea contratos; solo extrae el lead y envía el evento anonimizado a n8n.
+    """
     sample_transcript = [
         {"role": "assistant", "text": "¡Hola! Gracias por llamar a WELUX en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?"},
-        {"role": "user", "text": "Hola Sofía, me llamo Carlos Mendoza y busco cotizar un fotoespejo para un evento corporativo en Kirchberg el 18 de noviembre para 150 invitados. Mi teléfono es +352 691 452 890."},
-        {"role": "assistant", "text": "¡Excelente, Carlos! Tenemos paquetes con impresiones ilimitadas y plantillas personalizadas. Te enviamos la propuesta y el borrador de reserva de inmediato."},
+        {"role": "user", "text": "Hola Sofía, me llamo Carlos Mendoza y busco cotizar un fotoespejo para un evento corporativo en Kirchberg el 18 de noviembre para 150 invitados. Mi teléfono es +352 691 000 000."},
+        {"role": "assistant", "text": "¡Excelente, Carlos! Tomo nota y el equipo te enviará la propuesta."},
     ]
-    result = await processor.process_call_ended(
+    result = await PostCallProcessor().process_call_ended(
         room_name="test-simulado-sofia",
         participant_id="test-carlos",
         duration_seconds=46.2,
         transcript_history=sample_transcript,
         metrics={"tipo": "simulacion_directa"},
+        simulated=True,
     )
-    # Guardar en memoria para que aparezca en el panel
-    if result.get("lead"):
-        LEADS_DATABASE.append(result["lead"])
-    CALLS_DATABASE.append({
+    event = {
         "type": "call_ended",
-        "call_id": f"call-{int(datetime.now(timezone.utc).timestamp())}",
+        "call_id": f"sim-{uuid.uuid4().hex[:8]}",
         "room": "test-simulado-sofia",
         "duration": "00:46",
-        "transcript": sample_transcript,
+        "transcript": result.get("full_transcript"),
         "lead": result.get("lead"),
+        "status": "simulated",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
-
-    # Notificar a los monitores conectados
-    await monitor_hub.broadcast({
-        "type": "call_ended",
-        "room": "test-simulado-sofia",
-        "duration": "00:46",
-        "transcript": sample_transcript,
+    }
+    await monitor_hub.broadcast(event)
+    return {
+        "message": "Pipeline de prueba ejecutado (simulado: sin escritura en Sheets ni email)",
+        "simulated": True,
+        "n8n_delivered": result.get("n8n_delivered"),
         "lead": result.get("lead"),
-    })
-    return {"message": "Webhook de prueba procesado exitosamente", "payload": result}
+    }
 
 
-# Servir el monitor web del cliente en /panel
+# Servir el panel web en /panel
 if PANEL_DIR.exists():
     app.mount("/panel", StaticFiles(directory=PANEL_DIR, html=True), name="panel")
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server.app:app", host=Config.HOST, port=Config.PORT, reload=True)
+    uvicorn.run("server.app:app", host=Config.HOST, port=Config.PORT, reload=False)

@@ -20,7 +20,7 @@ El framework de auditoría de Cloudflare implementa un flujo automatizado de ver
 ### Fase 1: Reconocimiento (Attack Surface Mapping)
 Se identificaron y clasificaron los puntos de entrada y salida del sistema:
 1. **Audio Ingress / SIP & WebRTC:** Entrada de audio cliente mediante LiveKit SFU (cifrado con DTLS-SRTP).
-2. **Webhook Egress:** Despacho post-llamada hacia n8n Cloud (`https://weluxdigitalservices.app.n8n.cloud/webhook/centralita-test`).
+2. **Webhook Egress:** Despacho post-llamada hacia n8n Cloud (URL privada en `N8N_WEBHOOK_URL`).
 3. **Local TTS Runtime:** Pipeline en proceso de Piper TTS ejecutando modelo ONNX localmente sin sockets expuestos.
 4. **Panel del Cliente:** Frontend SPA alojado en GitHub Pages con comunicación WebSocket hacia `/ws/monitor`.
 5. **Generador de Tokens JWT:** Script `agent/make_token.py` para emisión de credenciales de sala efímeras.
