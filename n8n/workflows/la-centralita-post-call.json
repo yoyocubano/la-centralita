@@ -1,0 +1,206 @@
+{
+  "name": "La Centralita — Pipeline Post-Llamada (WELUX)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "centralita-post-call",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "id": "node-webhook-inbound",
+      "name": "Webhook Agente Centralita",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "centralita-post-call"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Filtrado y Anonimización RGPD (Luxemburgo)\nconst payload = $input.first().json;\n\nfunction redactPII(text) {\n  if (!text) return \"\";\n  const emailRegex = /\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,7}\\b/g;\n  const phoneRegex = /(?:\\+352[\\s.-]?)?(?:6\\d{2}[\\s.-]?\\d{3}[\\s.-]?\\d{3}|\\b\\d{3}[\\s.-]?\\d{3}[\\s.-]?\\d{3,4}\\b)/g;\n  return text.replace(emailRegex, \"[EMAIL_REDACTED]\").replace(phoneRegex, \"[PHONE_REDACTED]\");\n}\n\n// Extraer campos clave\nconst lead = payload.lead || payload.lead_resumen || {};\nconst now = new Date();\nconst luxembourgTime = new Intl.DateTimeFormat('es-ES', {\n  timeZone: 'Europe/Luxembourg',\n  dateStyle: 'short',\n  timeStyle: 'medium'\n}).format(now) + ' (CET)';\n\nconst rawName = lead.nombre || lead.name || 'Contacto Web/Telefónico';\nconst rawPhone = lead.telefono || lead.phone || 'No indicado';\nconst rawEmail = lead.email || 'contacto@weluxevents.com';\nconst rawInterest = lead.motivo || lead.interest || 'Servicios WELUX';\nconst rawDetails = lead.detalles || payload.transcripcion || 'Consulta telefónica registrada';\nconst docuStatus = (payload.docuseal && payload.docuseal.status) || 'BORRADOR';\n\nreturn [{\n  json: {\n    id_lead: payload.lead_hash ? payload.lead_hash.substring(0, 16) : 'LEAD-' + Date.now(),\n    timestamp_lux: luxembourgTime,\n    nombre: rawName,\n    telefono: rawPhone,\n    email: rawEmail,\n    empresa: lead.empresa || 'Empresa / Particular',\n    intencion_motivo: rawInterest,\n    resumen_requerimientos: rawDetails,\n    valor_estimado_eur: lead.valor_eur || '2.500 €',\n    estado_crm: 'NUEVO',\n    estado_docuseal: docuStatus,\n    agente: 'Sofía (IA Centralita)',\n    transcripcion_anonimizada: redactPII(payload.transcripcion || ''),\n    duracion_segundos: payload.duration_seconds || 0,\n    room_name: payload.room_name || 'centralita-main'\n  }\n}];"
+      },
+      "id": "node-filter-pii",
+      "name": "Filtro PII & Preparación RGPD",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID || '1lQgm6GqDwl8msoi0H1vwLd0t3dL27ow_' }}",
+          "mode": "id"
+        },
+        "range": "La Centralita — Leads!A:L",
+        "options": {
+          "valueInputMode": "USER_ENTERED"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID_LEAD": "={{ $json.id_lead }}",
+            "FECHA_HORA_LUXEMBOURG": "={{ $json.timestamp_lux }}",
+            "NOMBRE": "={{ $json.nombre }}",
+            "TELEFONO": "={{ $json.telefono }}",
+            "EMAIL": "={{ $json.email }}",
+            "EMPRESA": "={{ $json.empresa }}",
+            "INTENCION_MOTIVO": "={{ $json.intencion_motivo }}",
+            "RESUMEN_REQUERIMIENTOS": "={{ $json.resumen_requerimientos }}",
+            "VALOR_ESTIMADO_EUR": "={{ $json.valor_estimado_eur }}",
+            "ESTADO_TWENTY_CRM": "={{ $json.estado_crm }}",
+            "ESTADO_DOCUSEAL": "={{ $json.estado_docuseal }}",
+            "AGENTE": "={{ $json.agente }}"
+          }
+        }
+      },
+      "id": "node-sheets-append",
+      "name": "Google Sheets - Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [720, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "fromEmail": "centralita@weluxevents.com",
+        "toEmail": "info@weluxevents.com",
+        "subject": "=[La Centralita] Nuevo Lead Registrado: {{ $json.nombre }} · {{ $json.intencion_motivo }}",
+        "html": "=<!DOCTYPE html><html><body style=\"font-family:Arial,sans-serif;background:#0d111a;color:#f0f2f8;padding:20px;\"><div style=\"max-width:560px;margin:0 auto;background:#161c2d;padding:24px;border-radius:10px;border:1px solid rgba(212,175,55,0.3);\"><h2 style=\"color:#f5d061;margin-top:0;\">LA CENTRALITA · WELUX EVENTS</h2><p>Nuevo lead capturado por Sofía:</p><ul><li><strong>Nombre:</strong> {{ $json.nombre }}</li><li><strong>Teléfono:</strong> {{ $json.telefono }}</li><li><strong>Empresa:</strong> {{ $json.empresa }}</li><li><strong>Interés:</strong> {{ $json.intencion_motivo }}</li><li><strong>Valor Estimado:</strong> {{ $json.valor_estimado_eur }}</li><li><strong>Fecha Registro:</strong> {{ $json.timestamp_lux }}</li></ul><p><strong>Resumen:</strong><br>{{ $json.resumen_requerimientos }}</p><div style=\"background:rgba(139,92,246,0.15);padding:12px;border-left:4px solid #8b5cf6;border-radius:4px;\"><strong>Estado Contrato DocuSeal:</strong> {{ $json.estado_docuseal }}</div></div></body></html>",
+        "options": {}
+      },
+      "id": "node-send-email",
+      "name": "Email a info@weluxevents.com",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [960, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TWENTY_API_URL || 'https://api.twenty.com' }}/rest/people",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.TWENTY_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": {\n    \"firstName\": \"{{ $json.nombre.split(' ')[0] }}\",\n    \"lastName\": \"{{ $json.nombre.split(' ').slice(1).join(' ') || '-' }}\"\n  },\n  \"phones\": {\n    \"primaryPhone\": \"{{ $json.telefono }}\"\n  },\n  \"emails\": {\n    \"primaryEmail\": \"{{ $json.email }}\"\n  },\n  \"jobTitle\": \"Lead Centralita Telefónica\",\n  \"company\": \"{{ $json.empresa }}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "node-twenty-crm",
+      "name": "Twenty CRM - Upsert Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1200, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {},
+      "id": "node-error-trigger",
+      "name": "Error Trigger - Notificar Fallo",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [480, 520]
+    },
+    {
+      "parameters": {
+        "fromEmail": "alerta-sistema@weluxevents.com",
+        "toEmail": "info@weluxevents.com",
+        "subject": "⚠️ [ALERTA] Fallo en Pipeline n8n - La Centralita",
+        "html": "=<h3>Error en ejecución del workflow post-llamada</h3><p>Nodo fallido: {{ $json.execution.error.node.name }}</p><p>Mensaje: {{ $json.execution.error.message }}</p><p>Hora: {{ new Date().toISOString() }}</p>",
+        "options": {}
+      },
+      "id": "node-error-alert-email",
+      "name": "Email Alerta Fallo",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [720, 520]
+    }
+  ],
+  "connections": {
+    "Webhook Agente Centralita": {
+      "main": [
+        [
+          {
+            "node": "Filtro PII & Preparación RGPD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtro PII & Preparación RGPD": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Leads": {
+      "main": [
+        [
+          {
+            "node": "Email a info@weluxevents.com",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email a info@weluxevents.com": {
+      "main": [
+        [
+          {
+            "node": "Twenty CRM - Upsert Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger - Notificar Fallo": {
+      "main": [
+        [
+          {
+            "node": "Email Alerta Fallo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

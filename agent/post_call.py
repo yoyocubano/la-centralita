@@ -10,6 +10,15 @@ from openai import AsyncOpenAI
 from .config import Config
 from .prompts import LEAD_EXTRACTION_PROMPT
 
+try:
+    from .sheets_sync import GoogleSheetsSync
+    from .email_notify import EmailNotifier
+    from .docuseal_client import DocuSealClient
+except ImportError:
+    from sheets_sync import GoogleSheetsSync
+    from email_notify import EmailNotifier
+    from docuseal_client import DocuSealClient
+
 logger = logging.getLogger("la-centralita.post_call")
 
 
@@ -28,11 +37,14 @@ def redact_pii(text: str) -> str:
 
 
 class PostCallProcessor:
-    """Procesador post-llamada para estructurar el lead y notificar a n8n."""
+    """Procesador post-llamada para estructurar el lead y sincronizar con n8n, Sheets, Email y DocuSeal."""
 
     def __init__(self):
         self.webhook_url = Config.N8N_WEBHOOK_URL
         self.openai_client = None
+        self.sheets_sync = GoogleSheetsSync()
+        self.email_notifier = EmailNotifier()
+        self.docuseal_client = DocuSealClient()
         if Config.DEEPSEEK_API_KEY:
             self.openai_client = AsyncOpenAI(
                 api_key=Config.DEEPSEEK_API_KEY,
@@ -147,16 +159,71 @@ class PostCallProcessor:
         cost_deepgram = duration_min * 0.0043
         cost_deepseek = 0.00015
         total_cost_usd = round(cost_deepgram + cost_deepseek, 6)
+        lux_timestamp = self.sheets_sync.get_luxembourg_now()
 
         # Mitigación H-005 (RGPD Luxemburgo): calcular hash del lead y anonimizar transcripción
         lead_json = json.dumps(lead or {}, sort_keys=True, ensure_ascii=False)
         lead_hash = hashlib.sha256(lead_json.encode("utf-8")).hexdigest()
         redacted_transcript = redact_pii(full_transcript)
 
-        # Payload seguro sin PII en texto plano para el webhook externo
+        # Preparar datos unificados del lead para Sheets y CRM
+        lead_data = {
+            "nombre": (lead or {}).get("nombre"),
+            "telefono": (lead or {}).get("telefono"),
+            "email": (lead or {}).get("email"),
+            "empresa": (lead or {}).get("empresa") or "Empresa / Particular",
+            "motivo": (lead or {}).get("motivo") or "Consulta general",
+            "detalles": (lead or {}).get("detalles") or full_transcript[:300],
+            "fecha_evento": (lead or {}).get("fecha_evento") or "A convenir",
+            "tipo_evento": (lead or {}).get("tipo_evento"),
+            "valor_eur": "2.500 €",
+            "timestamp_lux": lux_timestamp,
+            "docuseal_status": "BORRADOR",
+        }
+
+        # Generar contrato DocuSeal si hay un lead con datos mínimos
+        docuseal_res = None
+        if (lead or {}).get("es_lead_valido") and (lead or {}).get("nombre"):
+            try:
+                docuseal_res = await self.docuseal_client.create_contract_submission(
+                    client_name=lead.get("nombre", "Cliente"),
+                    client_email=lead.get("email") or "",
+                    client_phone=lead.get("telefono") or "",
+                    event_interest=lead.get("motivo") or "Servicios WELUX",
+                    amount_eur=2500.0,
+                    event_date=lead.get("fecha_evento") or "A definir",
+                )
+                lead_data["docuseal_status"] = docuseal_res.get("status", "ENVIADO")
+                lead_data["docuseal_url"] = docuseal_res.get("sign_url")
+            except Exception as e:
+                logger.warning(f"Error generando contrato DocuSeal: {e}")
+
+        # 1. Sincronización idempotente con Google Sheets ("La Centralita — Leads")
+        sheets_res = None
+        try:
+            sheets_res = await self.sheets_sync.sync_lead(lead_data)
+        except Exception as e:
+            logger.error(f"Error al sincronizar con Google Sheets: {e}")
+
+        # 2. Notificación post-llamada inmediata a info@weluxevents.com
+        email_res = None
+        try:
+            email_info = {
+                "lead": lead_data,
+                "transcripcion": full_transcript,
+                "duration_seconds": duration_seconds,
+                "timestamp_lux": lux_timestamp,
+                "docuseal": docuseal_res,
+            }
+            email_res = await self.email_notifier.send_post_call_notification(email_info)
+        except Exception as e:
+            logger.error(f"Error al enviar notificación por email: {e}")
+
+        # Payload seguro sin PII en texto plano para el webhook externo n8n
         n8n_payload = {
             "event": "call_ended",
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp_lux": lux_timestamp,
             "room_name": room_name,
             "participant_id": participant_id,
             "duration_seconds": round(duration_seconds, 2),
@@ -168,6 +235,7 @@ class PostCallProcessor:
                 "fecha_evento": (lead or {}).get("fecha_evento"),
                 "es_lead_valido": (lead or {}).get("es_lead_valido", False),
             },
+            "docuseal": docuseal_res,
             "metricas": {
                 "duracion_minutos": round(duration_min, 2),
                 "total_turnos": len(transcript_history),
@@ -176,11 +244,14 @@ class PostCallProcessor:
             },
         }
 
-        # Despachar a n8n
+        # 3. Despachar a n8n
         await self.send_to_n8n(n8n_payload)
 
         # Devolver payload enriquecido para uso interno del servidor
         internal_result = dict(n8n_payload)
-        internal_result["lead"] = lead
+        internal_result["lead"] = lead_data
         internal_result["lead_raw"] = lead
+        internal_result["sheets_sync"] = sheets_res
+        internal_result["email_notify"] = email_res
         return internal_result
+
