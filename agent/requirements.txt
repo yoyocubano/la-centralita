@@ -1,0 +1,8 @@
+# La Centralita — dependencias del agente (Fase 1, prueba $0)
+livekit-agents
+livekit-plugins-deepgram
+livekit-plugins-openai
+livekit-plugins-silero
+livekit-api
+python-dotenv
+piper-tts
