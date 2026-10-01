@@ -147,12 +147,12 @@ async def entrypoint(ctx: JobContext) -> None:
         smart_format=True,
         punctuate=True,
         interim_results=True,
-        keywords=[
-            ("WELUX", 2.5),
-            ("Luxemburgo", 2.0),
-            ("Kirchberg", 1.8),
-            ("Strassen", 1.8),
-            ("Cloche d'Or", 1.8),
+        keyterm=[
+            "WELUX",
+            "Luxemburgo",
+            "Kirchberg",
+            "Strassen",
+            "Cloche d'Or",
         ],
         endpointing_ms=250,
     )

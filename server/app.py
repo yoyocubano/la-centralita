@@ -809,9 +809,12 @@ async def whatsapp_webhook_handler(request: Request):
     }
 
 
-# Servir el monitor web del cliente en /panel
+# Servir el monitor web del cliente en /panel y página de prueba en /web
 if PANEL_DIR.exists():
     app.mount("/panel", StaticFiles(directory=PANEL_DIR, html=True), name="panel")
+
+if WEB_DIR.exists():
+    app.mount("/web", StaticFiles(directory=WEB_DIR, html=True), name="web")
 
 
 if __name__ == "__main__":

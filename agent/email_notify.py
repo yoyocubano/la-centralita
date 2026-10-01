@@ -135,10 +135,11 @@ WELUX Events S.à r.l. · Luxemburgo
         subject = f"[La Centralita] Nueva llamada de {call_data.get('lead', {}).get('nombre') or 'Cliente'} · {call_data.get('lead', {}).get('motivo') or 'Consulta'}"
         text_content, html_content = self.build_email_content(call_data)
 
-        if not self.smtp_host or not self.smtp_user:
-            logger.info("Credenciales SMTP no configuradas. Notificación post-llamada preparada y registrada en logs.")
+        dry_run = os.getenv("SMTP_DRY_RUN", "true").lower() == "true"
+        if dry_run or not self.smtp_host or not self.smtp_user:
+            logger.info("Modo SMTP DRY-RUN activo o credenciales incompletas. Notificación post-llamada preparada y registrada sin despacho saliente.")
             return {
-                "status": "QUEUED_NO_SMTP",
+                "status": "DRY_RUN_PREPARED" if dry_run else "QUEUED_NO_SMTP",
                 "recipient": self.recipient,
                 "subject": subject,
                 "summary": text_content[:150],
