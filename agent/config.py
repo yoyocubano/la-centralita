@@ -32,7 +32,8 @@ class Config:
     # Post-call Webhook (n8n)
     N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
 
-    # Server config
+    # Servidor y autenticación interna
+    AUTH_TOKEN = os.getenv("CENTRALITA_AUTH_TOKEN", "")
     PORT = int(os.getenv("PORT", "8080"))
     HOST = os.getenv("HOST", "0.0.0.0")
 

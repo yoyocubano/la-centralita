@@ -107,10 +107,18 @@ El cliente o prospecto llama → el agente conversa de forma natural y ágil 24/
   - **`dograh-hq/dograh`** (Nota 24): Tool-calling nativo para agendamiento de citas en `agent/agent.py` (`check_calendar_availability`, `book_technical_meeting`) con LiveKit Agents 1.8 (`@llm.function_tool`), widget de reserva rápida y sincronización de citas.
   - **`docusealco/docuseal`** (Nota 24): Motor de firma digital electrónica para contratos de eventos de WELUX Events S.à r.l., integrado en el módulo de leads y pipeline comercial con sellado eIDAS y webhook n8n.
   - **`cloudflare/security-audit-skill`** (Nota 25 y Nota extra): Framework automatizado de auditoría en 6 fases. Creados `security/findings.json` y `security/coverage-ledger.json` (0 vulnerabilidades críticas, postura HARDENED, secreto cero en git, DTLS-SRTP y RGPD Luxemburgo). Incorporado monitor de seguridad en el panel.
-- ✅ **Suite de tests ampliada**: 9 tests pasando (`pytest tests/`).
+- ✅ **Suite de tests ampliada**: 16 tests pasando (`pytest tests/`).
 - 🎯 **Ajuste de Enfoque y Posicionamiento B2B**:
   - Reescrita la documentación, prompts y páginas para posicionar La Centralita como producto comercial B2B para pymes y empresas en Luxemburgo.
   - Articuladas las 4 líneas de negocio: 1) Asesoría de negocios (consultoría empresarial), 2) Servicios digitales, 3) Alquileres para eventos (fotoespejos/photobooths, inflables interactivos), 4) Servicios B2B (páginas web, chatbots, mailing, CRM). Bodas/eventos preservados como un escenario demo adicional.
+- 🛡️ **Resolución de Auditoría de Seguridad (Hallazgos Critical, High, Medium H-001 a H-007)**:
+  - **H-001 (CORS, Medium)**: Restringido a GitHub Pages (`https://yoyocubano.github.io`) y localhost; `allow_credentials=False`; métodos `GET, POST, OPTIONS`; headers `Content-Type, Authorization`.
+  - **H-002 (Token Endpoint, Critical)**: Exigido header `Authorization: Bearer <token>` y restricción estricta de salas autorizadas (`ALLOWED_ROOMS = {"centralita-test", "centralita-demo"}`). 401/403 si no autorizado.
+  - **H-003 (Call-Event Endpoint, Critical)**: Exigido header `Authorization: Bearer <token>` y validación de esquema con whitelist estricta (`ALLOWED_EVENT_KEYS`). Rechazo 400 ante claves extra o inyecciones.
+  - **H-004 (WebSocket Monitor, High)**: Validación de token por query param (`/ws/monitor?token=...`) antes de aceptar conexión; cierre con código `4001` ("Unauthorized") si el token es inválido o falta.
+  - **H-005 (Scrubbing de PII, Medium)**: Implementada función `redact_pii()` para anonimizar teléfonos y emails en transcripciones (RGPD Luxemburgo); despacho seguro con `lead_hash` (SHA-256) hacia el webhook de n8n.
+  - **H-006 (Exposición de Webhook, Medium)**: Reemplazada URL real en `.env.example` y `agent/.env.example` por placeholder seguro `https://tu-instancia-n8n.com/webhook/tu-secret-path-aqui`.
+  - **H-007 (XSS en Panel, High)**: Eliminados todos los `innerHTML` dinámicos en `panel/app.js` e `index.html`. Reemplazados por construcción segura de DOM y `textContent`.
 - ⏳ A la espera de las credenciales (LiveKit Cloud, Deepgram, DeepSeek) para configurar `.env` y levantar el worker.
 
 ### 2026-10-01 — moise

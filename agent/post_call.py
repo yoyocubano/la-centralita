@@ -1,5 +1,7 @@
+import hashlib
 import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
 import aiohttp
@@ -9,6 +11,20 @@ from .config import Config
 from .prompts import LEAD_EXTRACTION_PROMPT
 
 logger = logging.getLogger("la-centralita.post_call")
+
+
+def redact_pii(text: str) -> str:
+    """Anonimiza números de teléfono y direcciones de correo electrónico en transcripciones (RGPD / Luxemburgo)."""
+    if not text:
+        return ""
+    # Redactar emails
+    email_pattern = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,7}\b"
+    redacted = re.sub(email_pattern, "[EMAIL_REDACTED]", text)
+
+    # Redactar teléfonos (formato Luxemburgo +352, internacional o números locales de 6-12 dígitos)
+    phone_pattern = r"(?:\+352[\s.-]?)?(?:6\d{2}[\s.-]?\d{3}[\s.-]?\d{3}|\b\d{3}[\s.-]?\d{3}[\s.-]?\d{3,4}\b|\b(?:\+?\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}\b)"
+    redacted = re.sub(phone_pattern, "[PHONE_REDACTED]", redacted)
+    return redacted
 
 
 class PostCallProcessor:
@@ -132,14 +148,26 @@ class PostCallProcessor:
         cost_deepseek = 0.00015
         total_cost_usd = round(cost_deepgram + cost_deepseek, 6)
 
-        payload = {
+        # Mitigación H-005 (RGPD Luxemburgo): calcular hash del lead y anonimizar transcripción
+        lead_json = json.dumps(lead or {}, sort_keys=True, ensure_ascii=False)
+        lead_hash = hashlib.sha256(lead_json.encode("utf-8")).hexdigest()
+        redacted_transcript = redact_pii(full_transcript)
+
+        # Payload seguro sin PII en texto plano para el webhook externo
+        n8n_payload = {
             "event": "call_ended",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "room_name": room_name,
             "participant_id": participant_id,
             "duration_seconds": round(duration_seconds, 2),
-            "lead": lead,
-            "transcripcion": full_transcript,
+            "lead_hash": lead_hash,
+            "transcripcion": redacted_transcript,
+            "lead_resumen": {
+                "motivo": (lead or {}).get("motivo"),
+                "tipo_evento": (lead or {}).get("tipo_evento"),
+                "fecha_evento": (lead or {}).get("fecha_evento"),
+                "es_lead_valido": (lead or {}).get("es_lead_valido", False),
+            },
             "metricas": {
                 "duracion_minutos": round(duration_min, 2),
                 "total_turnos": len(transcript_history),
@@ -149,5 +177,10 @@ class PostCallProcessor:
         }
 
         # Despachar a n8n
-        await self.send_to_n8n(payload)
-        return payload
+        await self.send_to_n8n(n8n_payload)
+
+        # Devolver payload enriquecido para uso interno del servidor
+        internal_result = dict(n8n_payload)
+        internal_result["lead"] = lead
+        internal_result["lead_raw"] = lead
+        return internal_result

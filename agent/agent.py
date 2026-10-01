@@ -9,6 +9,7 @@ Al colgar: extrae el lead estructurado en JSON y lo notifica al webhook de n8n.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -23,10 +24,12 @@ try:
     from prompts import SYSTEM_PROMPT
     from piper_tts import PiperTTS
     from lead_extract import extract_lead
+    from post_call import redact_pii
 except ImportError:
     from .prompts import SYSTEM_PROMPT
     from .piper_tts import PiperTTS
     from .lead_extract import extract_lead
+    from .post_call import redact_pii
 
 load_dotenv()
 logger = logging.getLogger("centralita")
@@ -192,12 +195,20 @@ async def entrypoint(ctx: JobContext) -> None:
         logger.info("Llamada terminada: extrayendo lead y enviando a n8n...")
         transcript = transcript_to_text(session)
         lead = await extract_lead(transcript)
+        redacted_transcript = redact_pii(transcript)
+        lead_json = json.dumps(lead or {}, sort_keys=True, ensure_ascii=False)
+        lead_hash = hashlib.sha256(lead_json.encode("utf-8")).hexdigest()
         await post_to_n8n(
             {
                 "event": "call_ended",
                 "room": ctx.room.name,
-                "transcript": transcript,
-                "lead": lead,
+                "transcript": redacted_transcript,
+                "lead_hash": lead_hash,
+                "lead_resumen": {
+                    "motivo": (lead or {}).get("motivo"),
+                    "tipo_evento": (lead or {}).get("tipo_evento"),
+                    "es_lead_valido": (lead or {}).get("es_lead_valido", False),
+                },
                 "agent": os.getenv("AGENT_NAME", "Sofía (WELUX Events)"),
             }
         )

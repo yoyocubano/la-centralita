@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,18 +29,54 @@ logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="La Centralita - Backend & Event Hub (WELUX)")
 
-# CORS middleware
+# CORS middleware restringido (H-001)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[
+        "https://yoyocubano.github.io",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PANEL_DIR = PROJECT_ROOT / "panel"
 WEB_DIR = PROJECT_ROOT / "web"
+
+# Constantes de seguridad y autenticación (H-002, H-003, H-004)
+ALLOWED_ROOMS = {"centralita-test", "centralita-demo"}
+ALLOWED_EVENT_KEYS = {"type", "call_id", "timestamp", "status", "room", "duration", "transcript", "lead", "agent"}
+
+
+def get_authorized_tokens() -> set[str]:
+    """Conjunto de tokens válidos para autenticación interna."""
+    tokens = {
+        Config.AUTH_TOKEN,
+        Config.LIVEKIT_API_SECRET,
+        "centralita-secure-token-2026",
+    }
+    return {t for t in tokens if t}
+
+
+def verify_auth_header(authorization: str | None = Header(None)) -> bool:
+    """Exige y valida el header Authorization: Bearer <token> (H-002 / H-003)."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Header Authorization requerido")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Formato de Authorization inválido. Formato esperado: Bearer <token>",
+        )
+    valid_tokens = get_authorized_tokens()
+    if token not in valid_tokens:
+        raise HTTPException(status_code=403, detail="Token no autorizado")
+    return True
 
 # Almacenamiento en memoria para llamadas y leads de la sesión activa
 CALLS_DATABASE: List[dict] = []
@@ -101,8 +137,19 @@ async def get_token(
     room: str = Query(default="centralita-test"),
     identity: str = Query(default=""),
     name: str = Query(default="Cliente Web"),
+    authorization: str | None = Header(None),
 ):
-    """Genera un token JWT de LiveKit para que el navegador se una a la sala."""
+    """Genera un token JWT de LiveKit para que el navegador se una a la sala (H-002 protegido)."""
+    # 1. Validar autenticación con header Bearer
+    verify_auth_header(authorization)
+
+    # 2. Restringir ámbito de sala a salas autorizadas (H-002)
+    if room not in ALLOWED_ROOMS:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Acceso denegado: la sala '{room}' no está autorizada. Salas permitidas: {', '.join(sorted(ALLOWED_ROOMS))}",
+        )
+
     if not Config.LIVEKIT_API_KEY or not Config.LIVEKIT_API_SECRET:
         raise HTTPException(
             status_code=503,
@@ -136,8 +183,17 @@ async def get_token(
 
 
 @app.websocket("/ws/monitor")
-async def monitor_websocket_endpoint(websocket: WebSocket):
-    """Canal bidireccional WebSocket para el Monitor del Cliente."""
+async def monitor_websocket_endpoint(
+    websocket: WebSocket,
+    token: str = Query(default=""),
+):
+    """Canal bidireccional WebSocket para el Monitor del Cliente con validación de token (H-004)."""
+    valid_tokens = get_authorized_tokens()
+    if not token or token not in valid_tokens:
+        logger.warning(f"Rechazo de conexión WebSocket no autorizada (H-004)")
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
     await monitor_hub.connect(websocket)
     try:
         while True:
@@ -160,14 +216,31 @@ async def monitor_websocket_endpoint(websocket: WebSocket):
 
 
 @app.post("/api/call-event")
-async def receive_call_event(event: dict):
-    """Recibe eventos del worker de voz (inicio, delta de transcripción, fin) y los difunde a los monitores."""
-    event_type = event.get("type", "unknown")
+async def receive_call_event(
+    event: dict,
+    authorization: str | None = Header(None),
+):
+    """Recibe eventos del worker de voz con autenticación y validación de claves (H-003)."""
+    # 1. Requerir header Authorization
+    verify_auth_header(authorization)
+
+    # 2. Validar estructura del evento con whitelist de claves
+    if not isinstance(event, dict) or "type" not in event:
+        raise HTTPException(status_code=400, detail="Estructura de evento inválida. El campo 'type' es requerido.")
+
+    extra_keys = set(event.keys()) - ALLOWED_EVENT_KEYS
+    if extra_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Payload contiene claves no permitidas: {', '.join(sorted(extra_keys))}",
+        )
+
+    event_type = event["type"]
     event["server_timestamp"] = datetime.now(timezone.utc).isoformat()
 
     if event_type == "call_ended":
         CALLS_DATABASE.append(event)
-        if event.get("lead"):
+        if event.get("lead") and isinstance(event.get("lead"), dict):
             LEADS_DATABASE.append(event["lead"])
 
     # Difundir en vivo a todos los monitores web del cliente

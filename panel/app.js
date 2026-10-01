@@ -204,14 +204,17 @@ function initBackendWebSocket() {
   const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const wsHost = isLocal ? "localhost:8080" : window.location.host;
-  const wsUrl = `${protocol}//${wsHost}/ws/monitor`;
+  // Obtención de token autorizador para el WebSocket (H-004)
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get("token") || localStorage.getItem("centralita_monitor_token") || "centralita-secure-token-2026";
+  const wsUrl = `${protocol}//${wsHost}/ws/monitor?token=${encodeURIComponent(token)}`;
 
   try {
     backendSocket = new WebSocket(wsUrl);
 
     backendSocket.onopen = () => {
       isBackendConnected = true;
-      console.log("[Monitor] Conectado al backend WebSocket:", wsUrl);
+      console.log("[Monitor] Conectado al backend WebSocket seguro:", wsUrl);
       updateConnectionPill("BACKEND CONECTADO", "ok", "< 25 ms RTT");
     };
 
@@ -224,8 +227,13 @@ function initBackendWebSocket() {
       }
     };
 
-    backendSocket.onclose = () => {
+    backendSocket.onclose = (event) => {
       isBackendConnected = false;
+      if (event.code === 4001) {
+        console.warn("[Monitor] Conexión WebSocket rechazada por falta de autenticación (4001 Unauthorized).");
+        updateConnectionPill("NO AUTORIZADO (4001)", "error", "Token Inválido");
+        return;
+      }
       updateConnectionPill("MODO DEMO ACTIVO", "standby", "Simulación Local");
       // Reintento en segundo plano
       setTimeout(initBackendWebSocket, 15000);
@@ -362,18 +370,39 @@ function loadLiveCallInitialStream() {
   streamIndex = 4;
 }
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function appendStreamTurn(turn) {
   const container = document.getElementById("liveChatStream");
   const bubble = document.createElement("div");
-  bubble.className = `stream-bubble ${turn.role}`;
+  bubble.className = `stream-bubble ${turn.role === "agent" ? "agent" : "customer"}`;
 
-  bubble.innerHTML = `
-    <div class="bubble-meta">
-      <span>${turn.author}</span>
-      <span class="bubble-time">${turn.time}</span>
-    </div>
-    <div>${turn.text}</div>
-  `;
+  const metaDiv = document.createElement("div");
+  metaDiv.className = "bubble-meta";
+
+  const authorSpan = document.createElement("span");
+  authorSpan.textContent = turn.author || "";
+
+  const timeSpan = document.createElement("span");
+  timeSpan.className = "bubble-time";
+  timeSpan.textContent = turn.time || "";
+
+  metaDiv.appendChild(authorSpan);
+  metaDiv.appendChild(timeSpan);
+
+  const textDiv = document.createElement("div");
+  textDiv.textContent = turn.text || "";
+
+  bubble.appendChild(metaDiv);
+  bubble.appendChild(textDiv);
 
   container.appendChild(bubble);
   container.scrollTop = container.scrollHeight;
@@ -679,7 +708,13 @@ function updateLiveLeadDynamically(userInput, data) {
 
   if (data.reqs) {
     const container = document.getElementById("extLeadTags");
-    container.innerHTML = data.reqs.map(r => `<span class="tag">${r}</span>`).join("");
+    container.innerHTML = "";
+    data.reqs.forEach(r => {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = r;
+      container.appendChild(tag);
+    });
   }
 }
 
@@ -787,26 +822,56 @@ async function renderCallsTable(filter = "all") {
 
   filtered.forEach(call => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><strong>${call.date}</strong></td>
-      <td>
-        <div><strong>${call.client}</strong></div>
-        <div style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted);">${call.phone}</div>
-      </td>
-      <td><span style="font-family: var(--font-mono);">${call.duration}</span></td>
-      <td>${call.operator}</td>
-      <td>${call.reason}</td>
-      <td>
-        <span class="status-badge ${call.hasLead ? 'lead-yes' : 'lead-no'}">
-          ${call.hasLead ? '✓ Lead Extraído' : 'Sin Lead'}
-        </span>
-      </td>
-      <td>
-        <button class="btn-sm btn-outline" onclick="openTranscriptModal('${call.id}')">
-          Ver Transcripción
-        </button>
-      </td>
-    `;
+
+    const tdDate = document.createElement("td");
+    const strongDate = document.createElement("strong");
+    strongDate.textContent = call.date || "";
+    tdDate.appendChild(strongDate);
+
+    const tdClient = document.createElement("td");
+    const divClient = document.createElement("div");
+    const strongClient = document.createElement("strong");
+    strongClient.textContent = call.client || "";
+    divClient.appendChild(strongClient);
+    const divPhone = document.createElement("div");
+    divPhone.style.cssText = "font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted);";
+    divPhone.textContent = call.phone || "";
+    tdClient.appendChild(divClient);
+    tdClient.appendChild(divPhone);
+
+    const tdDur = document.createElement("td");
+    const spanDur = document.createElement("span");
+    spanDur.style.fontFamily = "var(--font-mono)";
+    spanDur.textContent = call.duration || "";
+    tdDur.appendChild(spanDur);
+
+    const tdOp = document.createElement("td");
+    tdOp.textContent = call.operator || "";
+
+    const tdReason = document.createElement("td");
+    tdReason.textContent = call.reason || "";
+
+    const tdLead = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = `status-badge ${call.hasLead ? 'lead-yes' : 'lead-no'}`;
+    badge.textContent = call.hasLead ? '✓ Lead Extraído' : 'Sin Lead';
+    tdLead.appendChild(badge);
+
+    const tdBtn = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.className = "btn-sm btn-outline";
+    btn.textContent = "Ver Transcripción";
+    btn.addEventListener("click", () => openTranscriptModal(call.id));
+    tdBtn.appendChild(btn);
+
+    tr.appendChild(tdDate);
+    tr.appendChild(tdClient);
+    tr.appendChild(tdDur);
+    tr.appendChild(tdOp);
+    tr.appendChild(tdReason);
+    tr.appendChild(tdLead);
+    tr.appendChild(tdBtn);
+
     tbody.appendChild(tr);
   });
 
@@ -848,14 +913,26 @@ function openTranscriptModal(callId) {
   selectedCall = cachedCalls.find(c => c.id === callId);
   if (!selectedCall) return;
 
-  document.getElementById("modalCallTitle").innerText = `Llamada con ${selectedCall.client}`;
-  document.getElementById("modalCallMeta").innerHTML = `
-    <span><strong>Fecha:</strong> ${selectedCall.date}</span>
-    <span><strong>Teléfono:</strong> ${selectedCall.phone}</span>
-    <span><strong>Duración:</strong> ${selectedCall.duration}</span>
-    <span><strong>Operadora:</strong> ${selectedCall.operator}</span>
-  `;
-  document.getElementById("modalTranscriptContent").innerText = selectedCall.transcript;
+  document.getElementById("modalCallTitle").textContent = `Llamada con ${selectedCall.client}`;
+  const metaContainer = document.getElementById("modalCallMeta");
+  metaContainer.innerHTML = "";
+
+  const metaFields = [
+    { label: "Fecha:", val: selectedCall.date },
+    { label: "Teléfono:", val: selectedCall.phone },
+    { label: "Duración:", val: selectedCall.duration },
+    { label: "Operadora:", val: selectedCall.operator },
+  ];
+  metaFields.forEach(f => {
+    const s = document.createElement("span");
+    const str = document.createElement("strong");
+    str.textContent = f.label + " ";
+    s.appendChild(str);
+    s.appendChild(document.createTextNode(f.val || ""));
+    metaContainer.appendChild(s);
+  });
+
+  document.getElementById("modalTranscriptContent").textContent = selectedCall.transcript || "";
   document.getElementById("transcriptModal").classList.add("open");
 }
 
@@ -920,43 +997,84 @@ async function renderLeadsGrid(filter = "all") {
     const badgeText = isSigned ? "✅ DocuSeal: Firmado" : (lead.stage === "agendado" ? "📝 DocuSeal: Listo" : "📄 DocuSeal: Borrador");
     const badgeClass = isSigned ? "" : (lead.stage === "agendado" ? "pending" : "draft");
 
-    card.innerHTML = `
-      <div class="lead-box-header">
-        <div>
-          <div class="lead-box-name">${lead.name}</div>
-          <div class="lead-box-phone">${lead.phone} • ${lead.company}</div>
-        </div>
-        <select class="lead-stage-select" onchange="changeLeadStage('${lead.id}', this.value)">
-          <option value="nuevo" ${lead.stage === 'nuevo' ? 'selected' : ''}>Nuevo</option>
-          <option value="contactado" ${lead.stage === 'contactado' ? 'selected' : ''}>Contactado</option>
-          <option value="agendado" ${lead.stage === 'agendado' ? 'selected' : ''}>Agendado</option>
-          <option value="ganado" ${lead.stage === 'ganado' ? 'selected' : ''}>Ganado</option>
-        </select>
-      </div>
+    // Header
+    const header = document.createElement("div");
+    header.className = "lead-box-header";
 
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: -4px;">
-        <span class="docuseal-badge ${badgeClass}">${badgeText}</span>
-        <span style="font-family: var(--font-mono); font-weight: 700; color: var(--gold-light); font-size: 0.85rem;">
-          ${amountsMap[lead.id] || '2.500 €'}
-        </span>
-      </div>
+    const infoDiv = document.createElement("div");
+    const nameDiv = document.createElement("div");
+    nameDiv.className = "lead-box-name";
+    nameDiv.textContent = lead.name || "";
+    const phoneDiv = document.createElement("div");
+    phoneDiv.className = "lead-box-phone";
+    phoneDiv.textContent = `${lead.phone || ""} • ${lead.company || ""}`;
+    infoDiv.appendChild(nameDiv);
+    infoDiv.appendChild(phoneDiv);
 
-      <div style="font-size: 0.85rem; font-weight: 600; color: var(--gold-light);">
-        ${lead.interest} (Fecha: ${lead.eventDate})
-      </div>
+    const stageSelect = document.createElement("select");
+    stageSelect.className = "lead-stage-select";
+    ["nuevo", "contactado", "agendado", "ganado"].forEach(stg => {
+      const opt = document.createElement("option");
+      opt.value = stg;
+      opt.textContent = stg.charAt(0).toUpperCase() + stg.slice(1);
+      if (lead.stage === stg) opt.selected = true;
+      stageSelect.appendChild(opt);
+    });
+    stageSelect.addEventListener("change", (e) => changeLeadStage(lead.id, e.target.value));
 
-      <div class="lead-box-summary">
-        ${lead.summary}
-      </div>
+    header.appendChild(infoDiv);
+    header.appendChild(stageSelect);
+    card.appendChild(header);
 
-      <div class="lead-box-footer">
-        <span>Capturado: ${lead.timestamp}</span>
-        <div style="display: flex; gap: 6px;">
-          <button class="btn-docuseal" onclick="openDocuSealModal('${lead.id}')">📝 Contrato</button>
-          <button class="btn-sm btn-outline" onclick="openWhatsAppForPhone('${lead.phone}')">WhatsApp</button>
-        </div>
-      </div>
-    `;
+    // Meta bar
+    const metaBar = document.createElement("div");
+    metaBar.style.cssText = "display: flex; justify-content: space-between; align-items: center; margin-top: -4px;";
+    const docuSpan = document.createElement("span");
+    docuSpan.className = `docuseal-badge ${badgeClass}`;
+    docuSpan.textContent = badgeText;
+    const amountSpan = document.createElement("span");
+    amountSpan.style.cssText = "font-family: var(--font-mono); font-weight: 700; color: var(--gold-light); font-size: 0.85rem;";
+    amountSpan.textContent = amountsMap[lead.id] || "2.500 €";
+    metaBar.appendChild(docuSpan);
+    metaBar.appendChild(amountSpan);
+    card.appendChild(metaBar);
+
+    // Interest
+    const interestDiv = document.createElement("div");
+    interestDiv.style.cssText = "font-size: 0.85rem; font-weight: 600; color: var(--gold-light);";
+    interestDiv.textContent = `${lead.interest || ""} (Fecha: ${lead.eventDate || ""})`;
+    card.appendChild(interestDiv);
+
+    // Summary
+    const summaryDiv = document.createElement("div");
+    summaryDiv.className = "lead-box-summary";
+    summaryDiv.textContent = lead.summary || "";
+    card.appendChild(summaryDiv);
+
+    // Footer
+    const footer = document.createElement("div");
+    footer.className = "lead-box-footer";
+    const captSpan = document.createElement("span");
+    captSpan.textContent = `Capturado: ${lead.timestamp || ""}`;
+    const btnGroup = document.createElement("div");
+    btnGroup.style.cssText = "display: flex; gap: 6px;";
+
+    const btnDoc = document.createElement("button");
+    btnDoc.className = "btn-docuseal";
+    btnDoc.textContent = "📝 Contrato";
+    btnDoc.addEventListener("click", () => openDocuSealModal(lead.id));
+
+    const btnWa = document.createElement("button");
+    btnWa.className = "btn-sm btn-outline";
+    btnWa.textContent = "WhatsApp";
+    btnWa.addEventListener("click", () => openWhatsAppForPhone(lead.phone));
+
+    btnGroup.appendChild(btnDoc);
+    btnGroup.appendChild(btnWa);
+    footer.appendChild(captSpan);
+    footer.appendChild(btnGroup);
+    card.appendChild(footer);
+
     container.appendChild(card);
   });
 
@@ -1014,30 +1132,63 @@ async function renderTwentyKanban() {
       card.className = "twenty-card";
       const amount = amountsMap[lead.id] || "2.500 €";
       const isSigned = lead.stage === "ganado" || lead.docusealSigned;
-      const docuBadge = isSigned ? `<span class="docuseal-badge" style="font-size:0.65rem;">✓ Firmado</span>` : `<span class="docuseal-badge pending" style="font-size:0.65rem;">DocuSeal</span>`;
 
-      card.innerHTML = `
-        <div class="twenty-card-header">
-          <span class="twenty-card-name">${lead.name}</span>
-          <span class="twenty-card-amount">${amount}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-          <span style="font-size: 0.78rem; color: var(--gold-light); font-weight: 600;">${lead.interest}</span>
-          ${docuBadge}
-        </div>
-        <div class="twenty-card-details">
-          ${lead.summary.slice(0, 75)}...
-        </div>
-        <div class="twenty-card-footer">
-          <button class="btn-docuseal" style="padding: 2px 6px; font-size: 0.7rem;" onclick="openDocuSealModal('${lead.id}')">📝 DocuSeal</button>
-          <select style="background: none; border: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.72rem; border-radius: 4px; padding: 2px 4px;" onchange="changeLeadStage('${lead.id}', this.value); renderTwentyKanban();">
-            <option value="nuevo" ${lead.stage === 'nuevo' ? 'selected' : ''}>Nuevo</option>
-            <option value="contactado" ${lead.stage === 'contactado' ? 'selected' : ''}>Contactado</option>
-            <option value="agendado" ${lead.stage === 'agendado' ? 'selected' : ''}>Agendado</option>
-            <option value="ganado" ${lead.stage === 'ganado' ? 'selected' : ''}>Ganado</option>
-          </select>
-        </div>
-      `;
+      const header = document.createElement("div");
+      header.className = "twenty-card-header";
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "twenty-card-name";
+      nameSpan.textContent = lead.name || "";
+      const amtSpan = document.createElement("span");
+      amtSpan.className = "twenty-card-amount";
+      amtSpan.textContent = amount;
+      header.appendChild(nameSpan);
+      header.appendChild(amtSpan);
+      card.appendChild(header);
+
+      const subHeader = document.createElement("div");
+      subHeader.style.cssText = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;";
+      const intSpan = document.createElement("span");
+      intSpan.style.cssText = "font-size: 0.78rem; color: var(--gold-light); font-weight: 600;";
+      intSpan.textContent = lead.interest || "";
+      const docuBadge = document.createElement("span");
+      docuBadge.className = isSigned ? "docuseal-badge" : "docuseal-badge pending";
+      docuBadge.style.fontSize = "0.65rem";
+      docuBadge.textContent = isSigned ? "✓ Firmado" : "DocuSeal";
+      subHeader.appendChild(intSpan);
+      subHeader.appendChild(docuBadge);
+      card.appendChild(subHeader);
+
+      const detailsDiv = document.createElement("div");
+      detailsDiv.className = "twenty-card-details";
+      detailsDiv.textContent = (lead.summary || "").slice(0, 75) + "...";
+      card.appendChild(detailsDiv);
+
+      const footer = document.createElement("div");
+      footer.className = "twenty-card-footer";
+      const btnDoc = document.createElement("button");
+      btnDoc.className = "btn-docuseal";
+      btnDoc.style.cssText = "padding: 2px 6px; font-size: 0.7rem;";
+      btnDoc.textContent = "📝 DocuSeal";
+      btnDoc.addEventListener("click", () => openDocuSealModal(lead.id));
+
+      const sel = document.createElement("select");
+      sel.style.cssText = "background: none; border: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.72rem; border-radius: 4px; padding: 2px 4px;";
+      ["nuevo", "contactado", "agendado", "ganado"].forEach(stg => {
+        const opt = document.createElement("option");
+        opt.value = stg;
+        opt.textContent = stg.charAt(0).toUpperCase() + stg.slice(1);
+        if (lead.stage === stg) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener("change", (e) => {
+        changeLeadStage(lead.id, e.target.value);
+        renderTwentyKanban();
+      });
+
+      footer.appendChild(btnDoc);
+      footer.appendChild(sel);
+      card.appendChild(footer);
+
       colContainer.appendChild(card);
     });
   });
@@ -1146,16 +1297,18 @@ function renderCalendar() {
     dayCell.className = "cal-day";
     if (day === 1) dayCell.classList.add("today");
 
-    let eventDot = "";
+    const numSpan = document.createElement("span");
+    numSpan.className = "cal-day-num";
+    numSpan.textContent = String(day);
+    dayCell.appendChild(numSpan);
+
     if ([18, 22, 28].includes(day)) {
       dayCell.classList.add("has-event");
-      eventDot = `<span class="cal-event-dot"></span>`;
+      const dot = document.createElement("span");
+      dot.className = "cal-event-dot";
+      dayCell.appendChild(dot);
     }
 
-    dayCell.innerHTML = `
-      <span class="cal-day-num">${day}</span>
-      ${eventDot}
-    `;
     grid.appendChild(dayCell);
   }
 }
@@ -1167,20 +1320,42 @@ function renderAppointments() {
   APPOINTMENTS_DATA.forEach(app => {
     const card = document.createElement("div");
     card.className = "appointment-item";
-    card.innerHTML = `
-      <div class="app-date-box">
-        <span class="app-day">${app.date.split(" ")[0]}</span>
-        <span class="app-month">${app.date.split(" ")[1]}</span>
-      </div>
-      <div class="app-info">
-        <div class="app-title">${app.title}</div>
-        <div class="app-meta">${app.time} • ${app.type}</div>
-        <div class="app-desc">${app.description}</div>
-      </div>
-      <button class="btn-sm btn-outline" onclick="alert('Recordatorio enviado a Google Calendar.')">
-        Sincronizar
-      </button>
-    `;
+
+    const dateBox = document.createElement("div");
+    dateBox.className = "app-date-box";
+    const daySpan = document.createElement("span");
+    daySpan.className = "app-day";
+    daySpan.textContent = (app.date || "").split(" ")[0] || "";
+    const monthSpan = document.createElement("span");
+    monthSpan.className = "app-month";
+    monthSpan.textContent = (app.date || "").split(" ")[1] || "";
+    dateBox.appendChild(daySpan);
+    dateBox.appendChild(monthSpan);
+
+    const infoDiv = document.createElement("div");
+    infoDiv.className = "app-info";
+    const titleDiv = document.createElement("div");
+    titleDiv.className = "app-title";
+    titleDiv.textContent = app.title || "";
+    const metaDiv = document.createElement("div");
+    metaDiv.className = "app-meta";
+    metaDiv.textContent = `${app.time || ""} • ${app.type || ""}`;
+    const descDiv = document.createElement("div");
+    descDiv.className = "app-desc";
+    descDiv.textContent = app.description || "";
+    infoDiv.appendChild(titleDiv);
+    infoDiv.appendChild(metaDiv);
+    infoDiv.appendChild(descDiv);
+
+    const syncBtn = document.createElement("button");
+    syncBtn.className = "btn-sm btn-outline";
+    syncBtn.textContent = "Sincronizar";
+    syncBtn.addEventListener("click", () => alert("Recordatorio enviado a Google Calendar."));
+
+    card.appendChild(dateBox);
+    card.appendChild(infoDiv);
+    card.appendChild(syncBtn);
+
     container.appendChild(card);
   });
 }

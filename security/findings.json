@@ -99,7 +99,65 @@
       "high": 0,
       "medium": 0,
       "low": 0,
-      "security_posture": "HARDENED_EXCELLENT"
+      "security_posture": "HARDENED_EXCELLENT",
+      "resolved_audit_findings": [
+        {
+          "id": "H-001",
+          "severity": "MEDIUM",
+          "component": "server/app.py",
+          "title": "CORS Wildcard + Allow Credentials",
+          "status": "RESOLVED",
+          "remediation": "Restricted allow_origins to GitHub Pages and local origins, disabled allow_credentials, restricted methods and headers."
+        },
+        {
+          "id": "H-002",
+          "severity": "CRITICAL",
+          "component": "server/app.py",
+          "title": "Token Endpoint Sin Autenticación",
+          "status": "RESOLVED",
+          "remediation": "Added mandatory Authorization header check with Bearer token validation and strict room scope whitelisting (401/403)."
+        },
+        {
+          "id": "H-003",
+          "severity": "CRITICAL",
+          "component": "server/app.py",
+          "title": "POST /api/call-event Sin Autenticación + XSS Combinado",
+          "status": "RESOLVED",
+          "remediation": "Added mandatory Authorization header check and strict event payload schema whitelist rejecting unknown keys with 400."
+        },
+        {
+          "id": "H-004",
+          "severity": "HIGH",
+          "component": "server/app.py",
+          "title": "WebSocket /ws/monitor Sin Autenticación",
+          "status": "RESOLVED",
+          "remediation": "Added token query parameter validation before connection accept; closes unauthorized connections with code 4001."
+        },
+        {
+          "id": "H-005",
+          "severity": "MEDIUM",
+          "component": "agent/post_call.py & agent/agent.py",
+          "title": "Transcripciones a n8n Sin Filtrado de PII",
+          "status": "RESOLVED",
+          "remediation": "Implemented redact_pii() to scrub phones and emails, and sha256 lead_hash dispatched to external webhook."
+        },
+        {
+          "id": "H-006",
+          "severity": "MEDIUM",
+          "component": ".env.example & agent/.env.example",
+          "title": "n8n Webhook URL Expuesta en .env.example",
+          "status": "RESOLVED",
+          "remediation": "Replaced real webhook URL with safe template placeholder."
+        },
+        {
+          "id": "H-007",
+          "severity": "HIGH",
+          "component": "panel/app.js & index.html",
+          "title": "XSS en panel/app.js vía innerHTML + Event Injection",
+          "status": "RESOLVED",
+          "remediation": "Eliminated all dynamic template string innerHTML assignments, replaced with safe DOM construction and textContent."
+        }
+      ]
     },
     {
       "phase": 6,
