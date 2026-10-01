@@ -131,10 +131,8 @@ function initBackendWebSocket() {
   const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const wsHost = isLocal ? "localhost:8080" : window.location.host;
-  // Obtención de token autorizador para el WebSocket (H-004)
-  const urlParams = new URLSearchParams(window.location.search);
-  const token = urlParams.get("token") || localStorage.getItem("centralita_monitor_token") || "centralita-secure-token-2026";
-  const wsUrl = `${protocol}//${wsHost}/ws/monitor?token=${encodeURIComponent(token)}`;
+  const token = urlParams.get("token") || localStorage.getItem("centralita_monitor_token") || "";
+  const wsUrl = token ? `${protocol}//${wsHost}/ws/monitor?token=${encodeURIComponent(token)}` : `${protocol}//${wsHost}/ws/monitor`;
 
   try {
     backendSocket = new WebSocket(wsUrl);
@@ -1798,7 +1796,7 @@ async function saveLiveLeadToBackend() {
   if (tagEl) tagEl.textContent = "Sincronizando Sheets...";
 
   try {
-    const token = localStorage.getItem("welux_operator_token") || "centralita-secure-token-2026";
+    const token = localStorage.getItem("welux_operator_token") || "";
     const res = await fetch("/api/call/update-lead", {
       method: "POST",
       headers: {
@@ -1851,7 +1849,7 @@ async function confirmTransferCall() {
   }
 
   try {
-    const token = localStorage.getItem("welux_operator_token") || "centralita-secure-token-2026";
+    const token = localStorage.getItem("welux_operator_token") || "";
     const res = await fetch("/api/call/transfer", {
       method: "POST",
       headers: {
