@@ -2,780 +2,304 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Monitor en Vivo · Panel del Cliente | La Centralita (WELUX)</title>
-  <meta name="description" content="Panel de control en vivo para el dueño del negocio: transcripción en tiempo real de llamadas, historial completo, extracción de leads y agenda de citas.">
-  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Centralita • Panel de Operaciones</title>
+  <link rel="stylesheet" href="/panel/styles.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; scroll-behavior: smooth; }
+    body { background: #fafafa; color: #000; line-height: 1.5; }
+
+    .app-root { display: flex; flex-direction: column; height: 100vh; }
+    .header { padding: 16px 20px; border-bottom: 1px solid #e0e0e0; background: #fff; }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header .status { font-size: 12px; color: #666; margin-top: 4px; }
+
+    .tabs { display: flex; border-bottom: 1px solid #e0e0e0; background: #fff; }
+    .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; border: none; background: none; font-size: 14px; font-weight: 500; color: #666; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .tab.active { color: #000; border-bottom-color: #000; }
+    .tab:hover { color: #000; }
+
+    .content { flex: 1; overflow-y: auto; padding: 20px; }
+
+    /* Vistas */
+    .view { display: none; }
+    .view.active { display: flex; flex-direction: column; height: 100%; }
+
+    /* Vista Llamada */
+    .call-view { gap: 20px; }
+    .panels-container { display: flex; gap: 20px; flex: 1; }
+    .panel { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; flex: 1; display: flex; flex-direction: column; }
+    .panel h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+    .panel .label { font-size: 12px; color: #999; margin-bottom: 8px; }
+    .panel .value { font-size: 16px; font-weight: 500; margin-bottom: 16px; }
+    .panel .transcript { flex: 1; background: #f9f9f9; border-radius: 4px; padding: 12px; font-size: 13px; line-height: 1.6; overflow-y: auto; max-height: 300px; }
+    .panel .transcript .message { margin-bottom: 12px; }
+    .panel .transcript .message.agent { font-weight: 500; color: #0066cc; }
+    .panel .transcript .message.client { color: #333; }
+
+    .call-controls { display: flex; gap: 12px; margin-top: 16px; }
+    .btn { padding: 10px 16px; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+    .btn-primary { background: #000; color: #fff; }
+    .btn-primary:hover { background: #333; }
+    .btn-secondary { background: #e0e0e0; color: #000; }
+    .btn-secondary:hover { background: #d0d0d0; }
+    .btn-danger { background: #ff3b30; color: #fff; }
+    .btn-danger:hover { background: #cc2a1f; }
+
+    .call-info { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; }
+    .call-info .row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; }
+    .call-info .row .label { color: #666; }
+    .call-info .row .value { font-weight: 500; }
+
+    /* Vista Registros */
+    .records-view { flex-direction: column; }
+    .records-container { flex: 1; overflow-y: auto; }
+    .record-item { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+    .record-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .record-header .caller { font-weight: 600; font-size: 14px; }
+    .record-header .time { font-size: 12px; color: #999; }
+    .record-meta { display: flex; gap: 16px; font-size: 12px; color: #666; margin-bottom: 8px; }
+    .record-meta span { display: flex; align-items: center; gap: 4px; }
+    .record-meta .duration { font-weight: 500; }
+    .record-transcript { background: #f9f9f9; border-radius: 4px; padding: 12px; font-size: 12px; line-height: 1.5; max-height: 120px; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .panels-container { flex-direction: column; gap: 12px; }
+      .panel { min-height: 200px; }
+      .content { padding: 12px; }
+      .header { padding: 12px 16px; }
+      .header h1 { font-size: 16px; }
+    }
+
+    /* Auth */
+    .auth-screen { background: #fafafa; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+    .auth-card { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; max-width: 300px; }
+    .auth-card h1 { font-size: 20px; margin-bottom: 8px; }
+    .auth-card p { color: #666; font-size: 14px; margin-bottom: 20px; }
+    .auth-card input { width: 100%; padding: 10px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; margin-bottom: 12px; }
+    .auth-card input:focus { outline: none; border-color: #000; }
+  </style>
 </head>
 <body>
+  <div id="root"></div>
 
-  <!-- App Wrapper -->
-  <div class="dashboard-layout">
-    
-    <!-- Left Sidebar -->
-    <aside class="sidebar">
-      <div class="sidebar-brand">
-        <div class="brand-emblem">W</div>
-        <div class="brand-text">
-          <span class="brand-title">LA CENTRALITA</span>
-          <span class="brand-subtitle">WELUX EVENTS · LUX</span>
-        </div>
-      </div>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-      <!-- Live Pipeline Status Pill in Sidebar -->
-      <div class="connection-status-box">
-        <div class="conn-indicator-row">
-          <span class="live-dot" id="connDot"></span>
-          <span class="conn-text" id="connText">CONECTANDO…</span>
-        </div>
-        <div class="conn-details">
-          <span>LiveKit WebRTC</span>
-          <span class="latency-pill" id="liveLatencyBadge">— ms</span>
-        </div>
-      </div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
 
-      <!-- Navigation Menu -->
-      <nav class="sidebar-nav">
-        <a href="#envivo" class="nav-item active" data-tab="envivo">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-            <line x1="12" x2="12" y1="19" y2="22"/>
-          </svg>
-          <span>En Vivo</span>
-          <span class="nav-badge" id="liveCallBadge">0 ACTIVAS</span>
-        </a>
+    function App() {
+      const [authToken, setAuthToken] = useState(() => sessionStorage.getItem('auth_token'));
+      const [activeTab, setActiveTab] = useState(0);
+      const [callActive, setCallActive] = useState(false);
+      const [callDuration, setCallDuration] = useState(0);
+      const [clientTranscript, setClientTranscript] = useState([]);
+      const [agentTranscript, setAgentTranscript] = useState([]);
+      const [records, setRecords] = useState([]);
+      const callTimerRef = useRef(null);
 
-        <a href="#llamadas" class="nav-item" data-tab="llamadas">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
-          </svg>
-          <span>Llamadas</span>
-          <span class="nav-counter" id="callCountBadge">0</span>
-        </a>
+      const handleLogin = (e) => {
+        e.preventDefault();
+        const token = `token_${Date.now()}`;
+        sessionStorage.setItem('auth_token', token);
+        setAuthToken(token);
+      };
 
-        <a href="#leads" class="nav-item" data-tab="leads">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-          </svg>
-          <span>Bandeja de Leads</span>
-          <span class="nav-counter gold" id="leadsCountBadge">0</span>
-        </a>
+      const startCall = () => {
+        setCallActive(true);
+        setClientTranscript([]);
+        setAgentTranscript([]);
+        setCallDuration(0);
 
-        <a href="#agenda" class="nav-item" data-tab="agenda">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-            <line x1="16" y1="2" x2="16" y2="6"/>
-            <line x1="8" y1="2" x2="8" y2="6"/>
-            <line x1="3" y1="10" x2="21" y2="10"/>
-          </svg>
-          <span>Agenda & Citas</span>
-          <span class="nav-counter" id="agendaCountBadge">0</span>
-        </a>
+        callTimerRef.current = setInterval(() => {
+          setCallDuration(d => d + 1);
+        }, 1000);
 
-        <a href="#estado" class="nav-item" data-tab="estado">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-          </svg>
-          <span>Estado del Sistema</span>
-          <span class="nav-dot-status" id="navStatusDot"></span>
-        </a>
-      </nav>
+        // Simulación: agregar mensajes de ejemplo
+        setTimeout(() => {
+          setClientTranscript(prev => [...prev, 'Buenos días, necesito ayuda con mi cuenta']);
+        }, 500);
 
-      <!-- Sidebar Footer -->
-      <div class="sidebar-footer">
-        <a href="https://yoyocubano.github.io/la-centralita/" class="btn-sidebar-link" target="_blank" rel="noopener noreferrer">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-            <polyline points="15 3 21 3 21 9"/>
-            <line x1="10" y1="14" x2="21" y2="3"/>
-          </svg>
-          Página de Prueba Pública
-        </a>
-        <div class="owner-tag">
-          <span>WELUX Pro Dashboard v0.2</span>
-          <span class="mode-tag" id="modeTag">Fase 1</span>
-        </div>
-      </div>
-    </aside>
+        setTimeout(() => {
+          setAgentTranscript(prev => [...prev, 'Buenos días, claro. Voy a revisar tu cuenta ahora.']);
+        }, 1500);
 
-    <!-- Main Content Area -->
-    <main class="main-body">
-      
-      <!-- Top Navigation Bar -->
-      <header class="topbar">
-        <div class="topbar-left">
-          <h1 class="view-title" id="currentViewTitle">Monitor de Llamada en Vivo</h1>
-          <p class="view-subtitle" id="currentViewSubtitle">Supervisión en tiempo real del diálogo, audio streaming y extracción automática de lead.</p>
-        </div>
+        setTimeout(() => {
+          setClientTranscript(prev => [...prev, 'Quiero cambiar mi plan de servicios']);
+        }, 3000);
+      };
 
-        <div class="topbar-right">
-          <button type="button" class="btn btn-secondary btn-sm demo-only" id="btnSimulateTrigger" data-action="triggerIncomingCallDemo">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/>
-            </svg>
-            <span>Simulación local</span>
-          </button>
-          
-          <div class="date-indicator" id="currentDateDisplay">1 Oct 2026</div>
-        </div>
-      </header>
-
-      <!-- Banner de modo: nunca se muestran datos simulados sin declararlo -->
-      <div class="mode-banner" id="modeBanner" role="status" aria-live="polite" hidden>
-        <span class="mode-banner-icon" aria-hidden="true">●</span>
-        <span class="mode-banner-text" id="modeBannerText"></span>
-        <button type="button" class="btn-sm btn-outline" id="btnConnectBackend" data-action="promptOperatorToken">Conectar al backend</button>
-      </div>
-
-      <!-- Client Identification Banner (Apple Design - Flujo Directo de Contacto) -->
-      <section class="client-id-banner" id="clientIdSection">
-        <div class="client-id-card">
-          <div class="client-id-info">
-            <div class="client-id-avatar">👤</div>
-            <div>
-              <div class="client-id-heading">Identifícate para tu sesión</div>
-              <div class="client-id-desc">Tus datos se registran en el CRM de WELUX solo con tu consentimiento.</div>
-            </div>
-          </div>
-          <form id="clientIdentificationForm" class="client-id-form" novalidate>
-            <input type="text" id="clientIdName" placeholder="Tu nombre *" required minlength="2" maxlength="100" autocomplete="name" class="apple-input" aria-label="Nombre">
-            <input type="tel" id="clientIdPhone" placeholder="Móvil (+352 ...) *" required maxlength="24" autocomplete="tel" class="apple-input" aria-label="Teléfono">
-            <input type="email" id="clientIdEmail" placeholder="Email (opcional)" maxlength="120" autocomplete="email" class="apple-input" aria-label="Email">
-            <input type="text" id="clientIdCompany" placeholder="Empresa (opcional)" maxlength="100" autocomplete="organization" class="apple-input" aria-label="Empresa">
-            <label class="consent-check">
-              <input type="checkbox" id="clientIdConsent" required>
-              <span>Acepto que WELUX trate estos datos para atender mi solicitud (RGPD). Puedo pedir su supresión en cualquier momento.</span>
-            </label>
-            <button type="submit" class="btn btn-primary" id="btnSaveClient">Guardar</button>
-          </form>
-          <div class="client-identified-pill" id="clientIdentifiedBadge" hidden>
-            <span>✓</span>
-            <span id="clientIdentifiedText">Cliente conectado</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 1: EN VIVO (Live Call Monitor) -->
-      <section class="view-panel active" id="view-envivo">
+      const endCall = () => {
+        clearInterval(callTimerRef.current);
         
-        <!-- Live Call Banner -->
-        <div class="live-call-banner">
-          <div class="caller-meta">
-            <div class="caller-avatar" id="liveCallerAvatar">JW</div>
-            <div class="caller-text">
-              <div class="caller-name-row">
-                <span class="caller-name" id="liveCallerName">Jean-Luc Weber</span>
-                <span class="call-badge-live" id="liveCallStatusBadge">EN LLAMADA</span>
-                <span class="caller-origin" id="liveCallerNumber">+352 691 452 890 (Luxemburgo)</span>
-              </div>
-              <div class="caller-subline">
-                <span>Operadora: <strong>Sofía (IA WELUX)</strong></span>
-                <span class="sep">•</span>
-                <span>Sala: <code id="liveRoomName">—</code></span>
-                <span class="sep">•</span>
-                <span>Transporte: <strong>LiveKit WebRTC</strong></span>
-              </div>
+        // Guardar en registros
+        const newRecord = {
+          id: `call_${Date.now()}`,
+          caller: '+34 600 123 456',
+          duration: callDuration,
+          timestamp: new Date().toLocaleString('es-ES'),
+          client: clientTranscript.join(' '),
+          agent: agentTranscript.join(' ')
+        };
+
+        setRecords(prev => [newRecord, ...prev]);
+        setCallActive(false);
+        setCallDuration(0);
+        setClientTranscript([]);
+        setAgentTranscript([]);
+      };
+
+      const formatDuration = (seconds) => {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      };
+
+      if (!authToken) {
+        return (
+          <div className="auth-screen">
+            <div className="auth-card">
+              <h1>Centralita Panel</h1>
+              <p>Inicia sesión para continuar</p>
+              <form onSubmit={handleLogin}>
+                <input type="email" placeholder="usuario@example.com" required />
+                <input type="password" placeholder="Contraseña" required />
+                <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Iniciar Sesión</button>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="app-root">
+          <div className="header">
+            <h1>Centralita • Panel de Operaciones</h1>
+            <div className="status">
+              {callActive ? '🔴 Llamada en vivo' : '⚫ Sin actividad'}
             </div>
           </div>
 
-          <div class="call-stats-group">
-            <div class="timer-box">
-              <span class="timer-label">DURACIÓN</span>
-              <span class="timer-digits" id="liveDurationTimer">01:42</span>
-            </div>
-            <!-- Audio Waveform Visualizer -->
-            <div class="waveform-box">
-              <span class="timer-label">STREAMING DE VOZ</span>
-              <canvas id="waveformCanvas" width="160" height="34"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <!-- 2-Columns Grid: Live Transcript vs Real-time Lead Extraction -->
-        <div class="live-grid">
-          
-          <!-- Transcript Stream -->
-          <div class="panel-card stream-card">
-            <div class="card-header">
-              <div class="header-left">
-                <span class="icon-circle live"></span>
-                <h3 class="card-title">Transcripción en vivo</h3>
-              </div>
-              <div class="header-right">
-                <span class="latency-tag" id="sttLatencyTag">Deepgram Nova-3</span>
-                <button type="button" class="btn-icon" title="Copiar transcripción" data-action="copyLiveTranscript">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div class="chat-stream-body" id="liveChatStream">
-              <!-- Dynamically populated with conversation turns -->
-            </div>
-
-            <!-- Interactive Live Test & Voice Bar -->
-            <div class="interactive-test-bar demo-only">
-              <div class="test-bar-input-row">
-                <button type="button" class="btn-mic" id="btnLiveMic" data-action="toggleVoiceInputTest" title="Hablar por micrófono con Sofía">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                    <line x1="12" x2="12" y1="19" y2="22"/>
-                  </svg>
-                  <span id="micBtnLabel">Hablar</span>
-                </button>
-                <input type="text" class="test-input" id="liveUserTextInput" placeholder="Habla por micrófono o escribe aquí (ej: cotizar sonido para 120 personas)...">
-                <button type="button" class="btn-sm btn-gold" data-action="sendLiveUserText">Enviar</button>
-              </div>
-              <div class="test-chips-row">
-                <span class="test-chips-label">Prueba Rápida por Línea:</span>
-                <button type="button" class="test-chip" data-action="quickSendChip" data-arg="Hola, busco alquilar un fotoespejo photobooth para activación de marca en Kirchberg">📸 Alquiler Fotoespejo</button>
-                <button type="button" class="test-chip" data-action="quickSendChip" data-arg="Buenas tardes, busco consultoría y asesoría de negocios para optimizar procesos comerciales">💼 Asesoría Negocios</button>
-                <button type="button" class="test-chip" data-action="quickSendChip" data-arg="Hola, necesitamos desarrollo web profesional y chatbot con IA para nuestro despacho">🌐 Web & CRM B2B</button>
-                <button type="button" class="test-chip" data-action="quickSendChip" data-arg="Alquiler de inflables interactivos de minigolf y billar para jornada de empresa">⛳ Alquiler Minigolf</button>
-                <button type="button" class="test-chip" data-action="quickSendChip" data-arg="Gala corporativa de fin de año con producción audiovisual en Kirchberg">🎉 Eventos WELUX</button>
-              </div>
-            </div>
-
-            <div class="stream-footer">
-              <div class="typing-indicator" id="liveTypingIndicator">
-                <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-                <span class="typing-text" id="typingText">Sofía escuchando al cliente...</span>
-              </div>
-              <div class="stream-actions demo-only">
-                <button type="button" class="btn-sm btn-outline" data-action="toggleAudioMute">
-                  <span id="muteLabel">Silenciar Voz</span>
-                </button>
-                <button type="button" class="btn-sm btn-danger" data-action="hangupActiveCall">
-                  Colgar Llamada
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Real-Time Extracted Lead Card -->
-          <div class="panel-card lead-card">
-            <div class="card-header">
-              <div class="header-left">
-                <span class="icon-circle gold"></span>
-                <h3 class="card-title">Lead extraído</h3>
-              </div>
-              <span class="sync-tag" id="n8nSyncTag">—</span>
-            </div>
-
-            <div class="lead-card-body">
-              <div class="lead-field-group">
-                <label>Nombre del Contacto</label>
-                <div class="lead-val highlight" id="extLeadName">Jean-Luc Weber</div>
-              </div>
-
-              <div class="lead-field-row">
-                <div class="lead-field-group">
-                  <label>Teléfono</label>
-                  <div class="lead-val" id="extLeadPhone">+352 691 452 890</div>
-                </div>
-                <div class="lead-field-group">
-                  <label>Fecha del Evento</label>
-                  <div class="lead-val text-gold" id="extLeadDate">18 de Noviembre 2026</div>
-                </div>
-              </div>
-
-              <div class="lead-field-group">
-                <label>Tipo de Evento & Interés</label>
-                <div class="lead-val" id="extLeadInterest">Gala corporativa de fin de año (150 personas)</div>
-              </div>
-
-              <div class="lead-field-group">
-                <label>Requerimientos Técnicos Detectados</label>
-                <div class="tags-container" id="extLeadTags">
-                  <span class="tag">Iluminación Arquitectónica</span>
-                  <span class="tag">Sonido Line Array</span>
-                  <span class="tag">Micrófonos Inalámbricos</span>
-                  <span class="tag">DJ Set</span>
-                </div>
-              </div>
-
-              <div class="lead-field-group">
-                <label>Resumen Conversacional</label>
-                <p class="lead-summary-text" id="extLeadSummary">
-                  Cliente busca producción técnica completa para salón en Kirchberg. Requiere propuesta formal antes del viernes. Presupuesto estimado flexible.
-                </p>
-              </div>
-
-              <div class="lead-auto-status">
-                <div class="status-pill-box">
-                  <span class="status-dot"></span>
-                  <span>Estado: <strong id="extLeadStatus">—</strong></span>
-                </div>
-              </div>
-            </div>
-
-            <div class="card-footer-actions">
-              <button type="button" class="btn-action-wa" data-action="contactViaWhatsApp">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                  <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2z"/>
-                </svg>
-                Abrir WhatsApp
-              </button>
-              <button type="button" class="btn-action-schedule" data-action="scheduleDirectMeeting">
-                Agendar en Calendario
-              </button>
-            </div>
-          </div>
-
-        </div>
-      </section>
-
-      <!-- VIEW 2: HISTORIAL DE LLAMADAS -->
-      <section class="view-panel" id="view-llamadas">
-        <div class="table-container-card">
-          <div class="table-toolbar">
-            <div class="filter-group">
-              <button type="button" class="filter-btn active" data-action="filterCalls" data-arg="all">Todas (<span id="totalCallsCount">0</span>)</button>
-              <button type="button" class="filter-btn" data-action="filterCalls" data-arg="today">Hoy</button>
-              <button type="button" class="filter-btn" data-action="filterCalls" data-arg="leads">Con lead</button>
-            </div>
-            <div class="search-box">
-              <input type="search" id="callSearchInput" placeholder="Buscar por cliente o teléfono..." aria-label="Buscar llamadas">
-            </div>
-            <button type="button" class="btn-sm btn-outline" data-action="exportCallsReport">
-              📥 Exportar Historial (CSV)
+          <div className="tabs">
+            <button 
+              className={`tab ${activeTab === 0 ? 'active' : ''}`}
+              onClick={() => setActiveTab(0)}
+            >
+              Llamada en Vivo
+            </button>
+            <button 
+              className={`tab ${activeTab === 1 ? 'active' : ''}`}
+              onClick={() => setActiveTab(1)}
+            >
+              Registros
             </button>
           </div>
 
-          <div class="responsive-table-wrapper">
-            <table class="data-table" id="callsTable">
-              <thead>
-                <tr>
-                  <th>Fecha & Hora</th>
-                  <th>Cliente / Número</th>
-                  <th>Duración</th>
-                  <th>Operadora</th>
-                  <th>Motivo / Interés</th>
-                  <th>Lead Extraído</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="callsTableBody">
-                <!-- Populated via JavaScript -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+          <div className="content">
+            {/* Vista Llamada en Vivo */}
+            <div className={`view call-view ${activeTab === 0 ? 'active' : ''}`}>
+              {callActive ? (
+                <>
+                  <div className="call-info">
+                    <div className="row">
+                      <span className="label">Duración</span>
+                      <span className="value">{formatDuration(callDuration)}</span>
+                    </div>
+                    <div className="row">
+                      <span className="label">Llamante</span>
+                      <span className="value">+34 600 123 456</span>
+                    </div>
+                    <div className="row">
+                      <span className="label">Estado</span>
+                      <span className="value" style={{ color: '#34c759' }}>Activa</span>
+                    </div>
+                  </div>
 
-      <!-- VIEW 3: BANDEJA DE LEADS (MODELO TWENTY CRM) -->
-      <section class="view-panel" id="view-leads">
-        <div class="table-container-card">
-          <div class="table-toolbar">
-            <div class="filter-group">
-              <button type="button" class="filter-btn active" data-action="filterLeads" data-arg="all">Todos (<span id="totalLeadsCount">0</span>)</button>
-              <button type="button" class="filter-btn" data-action="filterLeads" data-arg="nuevo">Nuevos</button>
-              <button type="button" class="filter-btn" data-action="filterLeads" data-arg="contactado">Contactados</button>
-              <button type="button" class="filter-btn" data-action="filterLeads" data-arg="agendado">Agendados</button>
-            </div>
-            
-            <div class="crm-view-toggles">
-              <button type="button" class="btn-toggle-view active" id="btnViewCards" data-action="switchLeadsViewMode" data-arg="cards">
-                📋 Vista Lista
-              </button>
-              <button type="button" class="btn-toggle-view" id="btnViewKanban" data-action="switchLeadsViewMode" data-arg="kanban">
-                📊 Pipeline Kanban
-              </button>
-              <button type="button" class="btn-sm btn-docuseal" data-action="openDocuSealModal">
-                📝 Contratos DocuSeal
-              </button>
-              <button type="button" class="btn-sm btn-primary" data-action="exportLeadsToCRM">
-                ⬇ Exportar leads (JSON)
-              </button>
-            </div>
-          </div>
+                  <div className="panels-container">
+                    <div className="panel">
+                      <h2>Cliente</h2>
+                      <div className="transcript">
+                        {clientTranscript.length === 0 ? (
+                          <div className="message" style={{ color: '#999' }}>Esperando transcripción...</div>
+                        ) : (
+                          clientTranscript.map((msg, idx) => (
+                            <div key={idx} className="message client">{msg}</div>
+                          ))
+                        )}
+                      </div>
+                    </div>
 
-          <!-- Cards View -->
-          <div class="leads-grid" id="leadsCardsGrid">
-            <!-- Cards populated dynamically -->
-          </div>
+                    <div className="panel">
+                      <h2>Agente</h2>
+                      <div className="transcript">
+                        {agentTranscript.length === 0 ? (
+                          <div className="message" style={{ color: '#999' }}>Esperando transcripción...</div>
+                        ) : (
+                          agentTranscript.map((msg, idx) => (
+                            <div key={idx} className="message agent">{msg}</div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-          <!-- Twenty CRM Kanban Board View -->
-          <div class="twenty-kanban-board" id="twentyKanbanBoard" hidden>
-            <!-- Column 1: NUEVO -->
-            <div class="twenty-column">
-              <div class="twenty-col-header">
-                <span class="twenty-col-title">
-                  <span class="status-dot"></span> NUEVO
-                </span>
-                <span class="twenty-col-count" id="kanbanCountNuevo">0</span>
-              </div>
-              <div class="twenty-cards-stack" id="kanbanColNuevo"></div>
-            </div>
-
-            <!-- Column 2: CONTACTADO -->
-            <div class="twenty-column">
-              <div class="twenty-col-header">
-                <span class="twenty-col-title">
-                  <span class="status-dot blue"></span> CONTACTADO
-                </span>
-                <span class="twenty-col-count" id="kanbanCountContactado">0</span>
-              </div>
-              <div class="twenty-cards-stack" id="kanbanColContactado"></div>
-            </div>
-
-            <!-- Column 3: AGENDADO -->
-            <div class="twenty-column">
-              <div class="twenty-col-header">
-                <span class="twenty-col-title">
-                  <span class="status-dot gold"></span> AGENDADO
-                </span>
-                <span class="twenty-col-count" id="kanbanCountAgendado">0</span>
-              </div>
-              <div class="twenty-cards-stack" id="kanbanColAgendado"></div>
-            </div>
-
-            <!-- Column 4: GANADO / CONTRATADO -->
-            <div class="twenty-column">
-              <div class="twenty-col-header">
-                <span class="twenty-col-title">
-                  <span class="status-dot green"></span> CONTRATADO
-                </span>
-                <span class="twenty-col-count" id="kanbanCountGanado">0</span>
-              </div>
-              <div class="twenty-cards-stack" id="kanbanColGanado"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 4: AGENDA DE CITAS (ARQUITECTURA DOGRAH TOOL-CALLING) -->
-      <section class="view-panel" id="view-agenda">
-        <div class="agenda-toolbar">
-          <div class="dograh-badge">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="12 6 12 12 16 14"/>
-            </svg>
-            Solicitudes registradas por Sofía · pendientes de confirmación
-          </div>
-          <button type="button" class="btn-sm btn-outline" data-action="openDirectBookingModal">+ Añadir solicitud de cita</button>
-        </div>
-
-        <div class="agenda-layout">
-          <!-- Calendar View -->
-          <div class="panel-card calendar-card">
-            <div class="calendar-header">
-              <h3 class="card-title" id="calendarMonthTitle">—</h3>
-              <div class="cal-nav-buttons">
-                <button type="button" class="btn-cal-nav" data-action="shiftCalendar" data-arg="-1" aria-label="Mes anterior">&lt;</button>
-                <button type="button" class="btn-cal-today" data-action="shiftCalendar" data-arg="0">Hoy</button>
-                <button type="button" class="btn-cal-nav" data-action="shiftCalendar" data-arg="1" aria-label="Mes siguiente">&gt;</button>
-              </div>
-            </div>
-            <div class="calendar-weekdays" aria-hidden="true"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
-            <div class="calendar-grid" id="calendarDaysGrid">
-              <!-- Calendar days generated via JS -->
-            </div>
-          </div>
-
-          <!-- Appointments List -->
-          <div class="panel-card appointments-card">
-            <div class="card-header">
-              <h3 class="card-title">Solicitudes de cita</h3>
-              <span class="badge-gold" id="appointmentsBadge">0 solicitudes</span>
-            </div>
-            <div class="appointments-list" id="appointmentsList">
-              <!-- Appts populated via JS -->
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 5: ESTADO DEL SISTEMA (datos reales del backend; lo de ejemplo va marcado) -->
-      <section class="view-panel" id="view-estado">
-        <div class="metabase-grid">
-          <div class="metabase-card">
-            <div class="metabase-card-title">Llamadas atendidas</div>
-            <div class="metabase-card-value" id="kpiCalls">—</div>
-            <div class="metabase-card-trend trend-neutral" id="kpiScope">Sin conexión al backend</div>
-          </div>
-          <div class="metabase-card">
-            <div class="metabase-card-title">Leads registrados</div>
-            <div class="metabase-card-value" id="kpiLeads">—</div>
-            <div class="metabase-card-trend trend-neutral" id="kpiLeadsSource">—</div>
-          </div>
-          <div class="metabase-card">
-            <div class="metabase-card-title">Conversión llamada → lead</div>
-            <div class="metabase-card-value" id="kpiConversion">—</div>
-            <div class="metabase-card-trend trend-neutral">Leads / llamadas de la sesión</div>
-          </div>
-          <div class="metabase-card">
-            <div class="metabase-card-title">Ahorro estimado</div>
-            <div class="metabase-card-value text-gold" id="kpiSavings">—</div>
-            <div class="metabase-card-trend trend-neutral" id="kpiSavingsAssumption">Supuesto: 15 min/llamada a 22 €/h</div>
-          </div>
-        </div>
-
-        <div class="two-col-grid demo-only">
-          <div class="metabase-funnel-card">
-            <div class="demo-chip">Datos de ejemplo</div>
-            <h3 class="card-title">Embudo de conversión comercial</h3>
-            <p class="card-subtitle">Paso de llamada entrante a oportunidad calificada y cita.</p>
-            <div class="funnel-steps-container">
-              <div class="funnel-step-row">
-                <span class="funnel-step-label">1. Llamadas</span>
-                <div class="funnel-bar-wrapper"><div class="funnel-bar-fill" data-width="100">18</div></div>
-                <span class="funnel-step-pct">100%</span>
-              </div>
-              <div class="funnel-step-row">
-                <span class="funnel-step-label">2. Calificadas</span>
-                <div class="funnel-bar-wrapper"><div class="funnel-bar-fill green" data-width="83">15</div></div>
-                <span class="funnel-step-pct">83%</span>
-              </div>
-              <div class="funnel-step-row">
-                <span class="funnel-step-label">3. En CRM</span>
-                <div class="funnel-bar-wrapper"><div class="funnel-bar-fill blue" data-width="78">14</div></div>
-                <span class="funnel-step-pct">78%</span>
-              </div>
-              <div class="funnel-step-row">
-                <span class="funnel-step-label">4. Citas</span>
-                <div class="funnel-bar-wrapper"><div class="funnel-bar-fill gold" data-width="22">4</div></div>
-                <span class="funnel-step-pct">22%</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="metabase-funnel-card">
-            <div class="demo-chip">Datos de ejemplo</div>
-            <h3 class="card-title">Distribución horaria de llamadas</h3>
-            <p class="card-subtitle">Hora local de Luxemburgo.</p>
-            <div class="hourly-bars-grid">
-              <div class="hourly-bar-col"><div class="hourly-bar-rect" data-height="15"></div><span class="hourly-bar-label">09h</span></div>
-              <div class="hourly-bar-col"><div class="hourly-bar-rect peak" data-height="65"></div><span class="hourly-bar-label">10h</span></div>
-              <div class="hourly-bar-col"><div class="hourly-bar-rect peak" data-height="90"></div><span class="hourly-bar-label">11h</span></div>
-              <div class="hourly-bar-col"><div class="hourly-bar-rect" data-height="45"></div><span class="hourly-bar-label">12h</span></div>
-              <div class="hourly-bar-col"><div class="hourly-bar-rect" data-height="75"></div><span class="hourly-bar-label">13h</span></div>
-              <div class="hourly-bar-col"><div class="hourly-bar-rect peak" data-height="95"></div><span class="hourly-bar-label">14h</span></div>
-              <div class="hourly-bar-col"><div class="hourly-bar-rect" data-height="60"></div><span class="hourly-bar-label">15h</span></div>
-              <div class="hourly-bar-col"><div class="hourly-bar-rect" data-height="35"></div><span class="hourly-bar-label">16h</span></div>
-              <div class="hourly-bar-col"><div class="hourly-bar-rect" data-height="20"></div><span class="hourly-bar-label">17h</span></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="status-panel-grid">
-          <div class="panel-card">
-            <h3 class="card-title card-title-spaced">Componentes del pipeline</h3>
-            <div class="services-list" id="servicesList">
-              <div class="service-row" data-service="LIVEKIT_API_KEY">
-                <div class="srv-left">
-                  <span class="status-dot-lg"></span>
-                  <div><strong>LiveKit Cloud (WebRTC)</strong><p>Transporte de audio de baja latencia</p></div>
+                  <div className="call-controls">
+                    <button className="btn btn-danger" onClick={endCall}>Colgar</button>
+                    <button className="btn btn-secondary">Transferir</button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 20 }}>
+                  <p style={{ color: '#999', fontSize: 14 }}>No hay llamada activa</p>
+                  <button className="btn btn-primary" onClick={startCall}>Iniciar Simulación</button>
                 </div>
-                <span class="srv-badge">Sin datos</span>
-              </div>
-              <div class="service-row" data-service="DEEPGRAM_API_KEY">
-                <div class="srv-left">
-                  <span class="status-dot-lg"></span>
-                  <div><strong>Deepgram Nova-3 (STT)</strong><p>Reconocimiento de voz en streaming</p></div>
-                </div>
-                <span class="srv-badge">Sin datos</span>
-              </div>
-              <div class="service-row" data-service="DEEPSEEK_API_KEY">
-                <div class="srv-left">
-                  <span class="status-dot-lg"></span>
-                  <div><strong>DeepSeek V3 (LLM)</strong><p>Conversación y extracción del lead</p></div>
-                </div>
-                <span class="srv-badge">Sin datos</span>
-              </div>
-              <div class="service-row" data-service="tts">
-                <div class="srv-left">
-                  <span class="status-dot-lg"></span>
-                  <div><strong>Síntesis de voz (TTS)</strong><p id="ttsProviderText">Proveedor configurable: CosyVoice 3 / Piper / ElevenLabs</p></div>
-                </div>
-                <span class="srv-badge">Sin datos</span>
-              </div>
-              <div class="service-row" data-service="google_sheets_configured">
-                <div class="srv-left">
-                  <span class="status-dot-lg"></span>
-                  <div><strong>Google Sheets (CRM de leads)</strong><p>Registro maestro de leads</p></div>
-                </div>
-                <span class="srv-badge">Sin datos</span>
-              </div>
-              <div class="service-row" data-service="smtp_configured">
-                <div class="srv-left">
-                  <span class="status-dot-lg"></span>
-                  <div><strong>Email al dueño (SMTP)</strong><p>Sin SMTP los avisos quedan en la bandeja de salida local</p></div>
-                </div>
-                <span class="srv-badge">Sin datos</span>
-              </div>
-              <div class="service-row" data-service="n8n_configured">
-                <div class="srv-left">
-                  <span class="status-dot-lg"></span>
-                  <div><strong>n8n (eventos anonimizados)</strong><p>Endpoint privado configurado en el servidor</p></div>
-                </div>
-                <span class="srv-badge">Sin datos</span>
-              </div>
+              )}
             </div>
-          </div>
 
-          <div class="panel-card">
-            <h3 class="card-title card-title-spaced">Métricas operativas</h3>
-            <div class="kpi-grid">
-              <div class="kpi-item"><span class="kpi-number" id="kpiMonitors">—</span><span class="kpi-label">Paneles conectados</span></div>
-              <div class="kpi-item"><span class="kpi-number" id="kpiRtt">—</span><span class="kpi-label">Latencia panel ↔ backend (RTT)</span></div>
-              <div class="kpi-item"><span class="kpi-number" id="kpiQueue">—</span><span class="kpi-label">Leads en cola sin sincronizar</span></div>
-              <div class="kpi-item"><span class="kpi-number" id="kpiIaCost">—</span><span class="kpi-label">Coste IA estimado (USD)</span></div>
-            </div>
-            <div class="assurance-box">
-              <h4>Reglas de producción</h4>
-              <ul>
-                <li><strong>Rebeca AI intacta:</strong> el repositorio <code>welux-events</code> no se modifica.</li>
-                <li><strong>Cero Twilio:</strong> transporte basado en LiveKit.</li>
-                <li><strong>Secretos:</strong> solo en el <code>.env</code> del servidor; el panel no contiene credenciales.</li>
-                <li><strong>RGPD:</strong> consentimiento explícito en el portal y eventos a n8n anonimizados.</li>
-              </ul>
+            {/* Vista Registros */}
+            <div className={`view records-view ${activeTab === 1 ? 'active' : ''}`}>
+              <div className="records-container">
+                {records.length === 0 ? (
+                  <div style={{ textAlign: 'center', color: '#999', paddingTop: 40 }}>
+                    <p>No hay registros aún</p>
+                  </div>
+                ) : (
+                  records.map(record => (
+                    <div key={record.id} className="record-item">
+                      <div className="record-header">
+                        <span className="caller">{record.caller}</span>
+                        <span className="time">{record.timestamp}</span>
+                      </div>
+                      <div className="record-meta">
+                        <span>
+                          <span>⏱</span>
+                          <span className="duration">{formatDuration(record.duration)}</span>
+                        </span>
+                        <span>✓ Completada</span>
+                      </div>
+                      <div style={{ marginBottom: 8, fontSize: 12, color: '#666' }}>
+                        <strong>Cliente:</strong> {record.client}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#666' }}>
+                        <strong>Agente:</strong> {record.agent}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>
+      );
+    }
 
-        <div class="security-audit-card">
-          <div class="security-audit-header">
-            <div>
-              <h3 class="card-title">Seguridad y cumplimiento</h3>
-              <p class="card-subtitle">Resumen de la auditoría del repositorio. El detalle completo está en <code>docs/SECURITY_AUDIT.md</code>.</p>
-            </div>
-            <div class="security-audit-actions">
-              <span class="security-score-badge" id="securityScoreBadge">Auditado · ver pendientes</span>
-              <button type="button" class="btn-sm btn-outline" data-action="openSecurityAuditModal">📋 Ver resumen</button>
-            </div>
-          </div>
-          <div class="security-phase-list">
-            <div class="security-phase-item"><span class="security-phase-num">1</span><div class="security-phase-text"><h5>Autenticación</h5><p>Token único del servidor; sin credenciales en el frontend.</p></div></div>
-            <div class="security-phase-item"><span class="security-phase-num">2</span><div class="security-phase-text"><h5>Datos personales</h5><p>Endpoints con PII autenticados; n8n recibe eventos anonimizados.</p></div></div>
-            <div class="security-phase-item"><span class="security-phase-num">3</span><div class="security-phase-text"><h5>Navegador</h5><p>Sin inyección de HTML; CSP estricta en el hosting.</p></div></div>
-            <div class="security-phase-item"><span class="security-phase-num">4</span><div class="security-phase-text"><h5>Integraciones</h5><p>Webhook DocuSeal con secreto; WebSocket con autenticación y control de origen.</p></div></div>
-            <div class="security-phase-item"><span class="security-phase-num">5</span><div class="security-phase-text"><h5>Pendiente del dueño</h5><p>Rotar la ruta del webhook n8n expuesta en el historial git.</p></div></div>
-            <div class="security-phase-item"><span class="security-phase-num">6</span><div class="security-phase-text"><h5>Pruebas</h5><p>Suite automatizada que reproduce cada ataque corregido.</p></div></div>
-          </div>
-        </div>
-      </section>
-
-    </main>
-  </div>
-
-  <!-- Transcript Modal -->
-  <div class="modal-backdrop" id="transcriptModal" hidden>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalCallTitle">
-      <div class="modal-header">
-        <h3 class="modal-title" id="modalCallTitle">Detalles de la Llamada</h3>
-        <button type="button" class="btn-close-modal" aria-label="Cerrar" data-action="closeTranscriptModal">&times;</button>
-      </div>
-      <div class="modal-meta-row" id="modalCallMeta">
-        <!-- Meta info -->
-      </div>
-      <div class="modal-body" id="modalTranscriptContent">
-        <!-- Full transcript -->
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn-sm btn-outline" data-action="downloadTranscriptFile" data-arg="txt">Descargar .TXT</button>
-        <button type="button" class="btn-sm btn-outline" data-action="downloadTranscriptFile" data-arg="json">Descargar .JSON</button>
-        <button type="button" class="btn-sm btn-primary" data-action="closeTranscriptModal">Cerrar</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- DocuSeal Digital Signature Modal (Nota 24) -->
-  <div class="modal-backdrop" id="docusealModal" hidden>
-    <div class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="docusealModalTitle">
-      <div class="modal-header">
-        <div class="modal-heading">
-          <span class="modal-heading-icon" aria-hidden="true">📝</span>
-          <div>
-            <h3 class="modal-title" id="docusealModalTitle">DocuSeal · Contrato Comercial y Servicios B2B</h3>
-            <span class="modal-subtitle">Firma electrónica eIDAS vía DocuSeal</span>
-          </div>
-        </div>
-        <button type="button" class="btn-close-modal" aria-label="Cerrar" data-action="closeDocuSealModal">&times;</button>
-      </div>
-
-      <div class="docuseal-contract-paper" id="docusealContractContent">
-        <div class="docuseal-contract-header">
-          <div>
-            <div class="docuseal-contract-title" id="docusealContractTitle">WELUX S.à r.l. — Contrato de Servicios B2B</div>
-            <div class="docuseal-contract-ref">
-              REF: <span id="docusealContractId">—</span> · LUXEMBOURG
-            </div>
-          </div>
-          <span class="docuseal-badge" id="docusealContractBadge">PENDIENTE DE FIRMA</span>
-        </div>
-
-        <p><strong>1. PARTES CONTRATANTES:</strong> De una parte, <em>WELUX Events S.à r.l.</em>, con sede en Luxemburgo. De otra parte, el cliente <strong id="docusealClientName">Jean-Luc Weber</strong> (<span id="docusealClientCompany">Consultora Kirchberg</span>), teléfono de contacto <strong id="docusealClientPhone">+352 691 452 890</strong>.</p>
-
-        <p><strong>2. OBJETO DEL CONTRATO:</strong> Prestación de servicios de producción audiovisual, sonido, iluminación y soporte técnico para el evento <em><span id="docusealEventInterest">Gala corporativa (150 pax)</span></em>, a realizarse el día <strong id="docusealEventDate">18 Nov 2026</strong> en Luxemburgo.</p>
-
-        <p><strong>3. ESPECIFICACIONES TÉCNICAS:</strong> <span id="docusealEventSummary">Requiere sonido line array, iluminación arquitectónica y micrófonos para discursos en Kirchberg.</span></p>
-
-        <p><strong>4. IMPORTE ACORDADO:</strong> El importe fijado para la cobertura integral es de <strong id="docusealContractAmount">Por cotizar</strong> (IVA aplicable en Luxemburgo).</p>
-
-        <div class="docuseal-seal-box" id="docusealSealBox">
-          <div>
-            <div class="docuseal-seal-label">
-              Estado de la firma
-            </div>
-            <div class="docuseal-signature-mark" id="docusealSignatureVisual">Jean-Luc Weber</div>
-            <div class="docuseal-cert-info" id="docusealCertInfo">
-              Sin firmar
-            </div>
-          </div>
-          <div class="docuseal-actions">
-            <a class="btn-sm btn-primary" id="docusealSignLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Abrir enlace de firma DocuSeal</a>
-            <button type="button" class="btn-sm btn-primary" id="btnSignDocuSeal" data-action="executeDocuSealSignature">
-              ✍️ Simular firma (modo demo)
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button type="button" class="btn-sm btn-outline" data-action="sendDocuSealWhatsApp">
-          ✉️ Enviar enlace por WhatsApp
-        </button>
-        <button type="button" class="btn-sm btn-outline" data-action="downloadSignedContract">
-          📥 Descargar Contrato (.TXT)
-        </button>
-        <button type="button" class="btn-sm btn-primary" data-action="closeDocuSealModal">Cerrar</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Cloudflare Security Audit Findings Modal (Nota 25) -->
-  <div class="modal-backdrop" id="securityAuditModal" hidden>
-    <div class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="securityModalTitle">
-      <div class="modal-header">
-        <div class="modal-heading">
-          <span class="modal-heading-icon" aria-hidden="true">🛡️</span>
-          <div>
-            <h3 class="modal-title" id="securityModalTitle">Estado de seguridad — resumen de auditoría</h3>
-            <span class="modal-subtitle">Fuente: docs/SECURITY_AUDIT.md y security/findings.json del repositorio</span>
-          </div>
-        </div>
-        <button type="button" class="btn-close-modal" aria-label="Cerrar" data-action="closeSecurityAuditModal">&times;</button>
-      </div>
-
-      <div class="json-viewer-container" id="securityFindingsJsonContent">
-        <!-- Loaded via JavaScript -->
-      </div>
-
-      <div class="modal-footer">
-        <button type="button" class="btn-sm btn-outline" data-action="downloadSecurityLedger">📥 Descargar resumen (.json)</button>
-        <button type="button" class="btn-sm btn-primary" data-action="closeSecurityAuditModal">Cerrar</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
 </body>
 </html>
