@@ -338,7 +338,7 @@
         </div>
       </section>
 
-      <!-- VIEW 3: BANDEJA DE LEADS -->
+      <!-- VIEW 3: BANDEJA DE LEADS (MODELO TWENTY CRM) -->
       <section class="view-panel" id="view-leads">
         <div class="table-container-card">
           <div class="table-toolbar">
@@ -348,19 +348,87 @@
               <button class="filter-btn" onclick="filterLeads('contactado')">Contactados</button>
               <button class="filter-btn" onclick="filterLeads('agendado')">Agendados</button>
             </div>
-            <button class="btn-sm btn-primary" onclick="exportLeadsJson()">
-              ⚡ Exportar a n8n / CRM
-            </button>
+            
+            <div class="crm-view-toggles">
+              <button class="btn-toggle-view active" id="btnViewCards" onclick="switchLeadsViewMode('cards')">
+                📋 Vista Lista
+              </button>
+              <button class="btn-toggle-view" id="btnViewKanban" onclick="switchLeadsViewMode('kanban')">
+                📊 Pipeline Kanban (Twenty)
+              </button>
+              <button class="btn-sm btn-primary" onclick="exportLeadsToCRM()">
+                ⚡ Sincronizar n8n / Twenty
+              </button>
+            </div>
           </div>
 
+          <!-- Cards View -->
           <div class="leads-grid" id="leadsCardsGrid">
             <!-- Cards populated dynamically -->
+          </div>
+
+          <!-- Twenty CRM Kanban Board View -->
+          <div class="twenty-kanban-board" id="twentyKanbanBoard" style="display: none;">
+            <!-- Column 1: NUEVO -->
+            <div class="twenty-column">
+              <div class="twenty-col-header">
+                <span class="twenty-col-title">
+                  <span class="status-dot"></span> NUEVO
+                </span>
+                <span class="twenty-col-count" id="kanbanCountNuevo">2</span>
+              </div>
+              <div class="twenty-cards-stack" id="kanbanColNuevo"></div>
+            </div>
+
+            <!-- Column 2: CONTACTADO -->
+            <div class="twenty-column">
+              <div class="twenty-col-header">
+                <span class="twenty-col-title">
+                  <span class="status-dot" style="background: var(--blue);"></span> CONTACTADO
+                </span>
+                <span class="twenty-col-count" id="kanbanCountContactado">2</span>
+              </div>
+              <div class="twenty-cards-stack" id="kanbanColContactado"></div>
+            </div>
+
+            <!-- Column 3: AGENDADO -->
+            <div class="twenty-column">
+              <div class="twenty-col-header">
+                <span class="twenty-col-title">
+                  <span class="status-dot" style="background: var(--gold);"></span> AGENDADO
+                </span>
+                <span class="twenty-col-count" id="kanbanCountAgendado">2</span>
+              </div>
+              <div class="twenty-cards-stack" id="kanbanColAgendado"></div>
+            </div>
+
+            <!-- Column 4: GANADO / CONTRATADO -->
+            <div class="twenty-column">
+              <div class="twenty-col-header">
+                <span class="twenty-col-title">
+                  <span class="status-dot" style="background: var(--emerald);"></span> CONTRATADO
+                </span>
+                <span class="twenty-col-count" id="kanbanCountGanado">0</span>
+              </div>
+              <div class="twenty-cards-stack" id="kanbanColGanado"></div>
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- VIEW 4: AGENDA DE CITAS -->
+      <!-- VIEW 4: AGENDA DE CITAS (ARQUITECTURA DOGRAH TOOL-CALLING) -->
       <section class="view-panel" id="view-agenda">
+        <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+          <div class="dograh-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            Motor de Reserva Autónoma · Tool-Calling Dograh MCP
+          </div>
+          <button class="btn-sm btn-outline" onclick="openDirectBookingModal()">+ Agendar Cita Rápida</button>
+        </div>
+
         <div class="agenda-layout">
           <!-- Calendar View -->
           <div class="panel-card calendar-card">
@@ -380,8 +448,8 @@
           <!-- Appointments List -->
           <div class="panel-card appointments-card">
             <div class="card-header">
-              <h3 class="card-title">Citas Agendadas por la Operadora</h3>
-              <span class="badge-gold">4 Citas Próximas</span>
+              <h3 class="card-title">Citas Agendadas por Sofía</h3>
+              <span class="badge-gold">4 Citas Confirmadas</span>
             </div>
             <div class="appointments-list" id="appointmentsList">
               <!-- Appts populated via JS -->
@@ -390,8 +458,126 @@
         </div>
       </section>
 
-      <!-- VIEW 5: ESTADO DEL SISTEMA -->
+      <!-- VIEW 5: ESTADO DEL SISTEMA & ANALÍTICA (ESTILO METABASE BI) -->
       <section class="view-panel" id="view-estado">
+        <!-- Metabase Executive KPI Row -->
+        <div class="metabase-grid">
+          <div class="metabase-card">
+            <div class="metabase-card-title">Llamadas Totales</div>
+            <div class="metabase-card-value">18</div>
+            <div class="metabase-card-trend trend-up">
+              <span>↑ 28.5%</span> vs semana anterior
+            </div>
+          </div>
+          <div class="metabase-card">
+            <div class="metabase-card-title">Tasa Conversión Lead</div>
+            <div class="metabase-card-value">83.3%</div>
+            <div class="metabase-card-trend trend-up">
+              <span>↑ 12.1%</span> 15 leads calificados
+            </div>
+          </div>
+          <div class="metabase-card">
+            <div class="metabase-card-title">Citas Agendadas</div>
+            <div class="metabase-card-value">4</div>
+            <div class="metabase-card-trend trend-neutral">
+              <span>22.2%</span> cierre directo por voz
+            </div>
+          </div>
+          <div class="metabase-card">
+            <div class="metabase-card-title">Ahorro Mensual Est.</div>
+            <div class="metabase-card-value text-gold">1,420 €</div>
+            <div class="metabase-card-trend trend-up">
+              <span>0 €</span> costo de telefonía F1
+            </div>
+          </div>
+        </div>
+
+        <!-- Metabase Conversion Funnel & Hourly Distribution -->
+        <div class="two-col-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px;">
+          
+          <!-- Funnel Metabase -->
+          <div class="metabase-funnel-card">
+            <h3 class="card-title" style="margin-bottom: 4px;">Embudo de Conversión Comercial (Metabase Funnel)</h3>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 16px;">Paso de llamada entrante a oportunidad calificada y cita agendada.</p>
+            
+            <div class="funnel-steps-container">
+              <div class="funnel-step-row">
+                <span class="funnel-step-label">1. Llamadas Recibidas</span>
+                <div class="funnel-bar-wrapper">
+                  <div class="funnel-bar-fill" style="width: 100%;">18 Llamadas</div>
+                </div>
+                <span class="funnel-step-pct">100%</span>
+              </div>
+              <div class="funnel-step-row">
+                <span class="funnel-step-label">2. Consultas Calificadas</span>
+                <div class="funnel-bar-wrapper">
+                  <div class="funnel-bar-fill" style="width: 83.3%; background: linear-gradient(90deg, #10b981 0%, #059669 100%);">15 Calificadas</div>
+                </div>
+                <span class="funnel-step-pct">83%</span>
+              </div>
+              <div class="funnel-step-row">
+                <span class="funnel-step-label">3. Leads Registrados CRM</span>
+                <div class="funnel-bar-wrapper">
+                  <div class="funnel-bar-fill" style="width: 77.7%; background: linear-gradient(90deg, #38bdf8 0%, #0284c7 100%);">14 Contactos</div>
+                </div>
+                <span class="funnel-step-pct">78%</span>
+              </div>
+              <div class="funnel-step-row">
+                <span class="funnel-step-label">4. Citas Agendadas</span>
+                <div class="funnel-bar-wrapper">
+                  <div class="funnel-bar-fill" style="width: 22.2%; background: linear-gradient(90deg, var(--gold) 0%, #a17f16 100%);">4 Citas</div>
+                </div>
+                <span class="funnel-step-pct">22%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Peak Hours Metabase Bar Chart -->
+          <div class="metabase-funnel-card">
+            <h3 class="card-title" style="margin-bottom: 4px;">Distribución Horaria de Llamadas (Luxemburgo)</h3>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 16px;">Picos comerciales de llamadas registradas por la centralita.</p>
+            
+            <div class="hourly-bars-grid">
+              <div class="hourly-bar-col">
+                <div class="hourly-bar-rect" style="height: 15%;"></div>
+                <span class="hourly-bar-label">09h</span>
+              </div>
+              <div class="hourly-bar-col">
+                <div class="hourly-bar-rect peak" style="height: 65%;"></div>
+                <span class="hourly-bar-label">10h</span>
+              </div>
+              <div class="hourly-bar-col">
+                <div class="hourly-bar-rect peak" style="height: 90%;"></div>
+                <span class="hourly-bar-label">11h</span>
+              </div>
+              <div class="hourly-bar-col">
+                <div class="hourly-bar-rect" style="height: 45%;"></div>
+                <span class="hourly-bar-label">12h</span>
+              </div>
+              <div class="hourly-bar-col">
+                <div class="hourly-bar-rect" style="height: 75%;"></div>
+                <span class="hourly-bar-label">13h</span>
+              </div>
+              <div class="hourly-bar-col">
+                <div class="hourly-bar-rect peak" style="height: 95%;"></div>
+                <span class="hourly-bar-label">14h</span>
+              </div>
+              <div class="hourly-bar-col">
+                <div class="hourly-bar-rect" style="height: 60%;"></div>
+                <span class="hourly-bar-label">15h</span>
+              </div>
+              <div class="hourly-bar-col">
+                <div class="hourly-bar-rect" style="height: 35%;"></div>
+                <span class="hourly-bar-label">16h</span>
+              </div>
+              <div class="hourly-bar-col">
+                <div class="hourly-bar-rect" style="height: 20%;"></div>
+                <span class="hourly-bar-label">17h</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="status-panel-grid">
           
           <!-- Services Health Status -->
@@ -468,12 +654,12 @@
                 <span class="kpi-label">Llamadas Atendidas Hoy</span>
               </div>
               <div class="kpi-item">
-                <span class="kpi-number">740 ms</span>
+                <span class="kpi-number">710 ms</span>
                 <span class="kpi-label">Latencia E2E Promedio</span>
               </div>
               <div class="kpi-item">
-                <span class="kpi-number text-gold">142,50 €</span>
-                <span class="kpi-label">Ahorro vs Twilio este mes</span>
+                <span class="kpi-number text-gold">1,420 €</span>
+                <span class="kpi-label">Ahorro vs PBX tradicional / mes</span>
               </div>
             </div>
 

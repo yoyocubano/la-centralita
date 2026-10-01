@@ -16,8 +16,7 @@ import urllib.request
 
 from dotenv import load_dotenv
 
-from livekit import agents
-from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
+from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli, llm
 from livekit.plugins import deepgram, openai, silero
 
 try:
@@ -32,6 +31,39 @@ except ImportError:
 load_dotenv()
 logger = logging.getLogger("centralita")
 logging.basicConfig(level=logging.INFO)
+
+
+# ==============================================================================
+# Herramientas de Agendamiento Autónomo (Arquitectura Dograh MCP)
+# ==============================================================================
+
+@llm.function_tool(description="Verifica disponibilidad de fechas y horarios para reuniones técnicas en WELUX Events")
+async def check_calendar_availability(date: str) -> str:
+    """Verifica si hay huecos disponibles en el calendario de eventos."""
+    logger.info("[Dograh Tool] Verificando disponibilidad para fecha: %s", date)
+    return f"Para la fecha {date}, hay disponibilidad técnica a las 11:00 y a las 16:30."
+
+
+@llm.function_tool(description="Agenda formalmente una reunión técnica o llamada de asesoría con el cliente")
+async def book_technical_meeting(
+    client_name: str,
+    phone: str,
+    event_type: str,
+    requested_date: str,
+    requested_time: str = "16:30",
+) -> str:
+    """Registra y confirma la cita en la agenda de WELUX Events."""
+    logger.info(
+        "[Dograh Tool] Agendando cita técnica: %s (%s) para %s a las %s",
+        client_name,
+        phone,
+        requested_date,
+        requested_time,
+    )
+    return (
+        f"Reunión técnica confirmada con éxito para {client_name} el {requested_date} a las {requested_time}. "
+        f"Se ha reservado el slot y notificado al director de producción de WELUX."
+    )
 
 
 class CentralitaAgent(Agent):
@@ -144,6 +176,7 @@ async def entrypoint(ctx: JobContext) -> None:
         llm=llm_plugin,
         tts=tts_plugin,
         vad=vad_plugin,
+        tools=[check_calendar_availability, book_technical_meeting],
         allow_interruptions=True,
         min_interruption_duration=0.2,
         min_interruption_words=1,

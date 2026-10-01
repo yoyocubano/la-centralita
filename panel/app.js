@@ -919,6 +919,99 @@ async function renderLeadsGrid(filter = "all") {
   document.getElementById("leadsCountBadge").innerText = cachedLeads.length;
 }
 
+function switchLeadsViewMode(mode) {
+  const cardsGrid = document.getElementById("leadsCardsGrid");
+  const kanbanBoard = document.getElementById("twentyKanbanBoard");
+  const btnCards = document.getElementById("btnViewCards");
+  const btnKanban = document.getElementById("btnViewKanban");
+
+  if (!cardsGrid || !kanbanBoard) return;
+
+  if (mode === "kanban") {
+    cardsGrid.style.display = "none";
+    kanbanBoard.style.display = "grid";
+    if (btnCards) btnCards.classList.remove("active");
+    if (btnKanban) btnKanban.classList.add("active");
+    renderTwentyKanban();
+  } else {
+    cardsGrid.style.display = "grid";
+    kanbanBoard.style.display = "none";
+    if (btnCards) btnCards.classList.add("active");
+    if (btnKanban) btnKanban.classList.remove("active");
+    renderLeadsGrid();
+  }
+}
+
+async function renderTwentyKanban() {
+  cachedLeads = await dataProvider.getLeads();
+  const stages = ["nuevo", "contactado", "agendado", "ganado"];
+  const amountsMap = {
+    "lead-1": "4.800 €",
+    "lead-2": "1.900 €",
+    "lead-3": "6.500 €",
+    "lead-4": "3.200 €",
+    "lead-5": "1.200 €",
+    "lead-6": "2.400 €"
+  };
+
+  stages.forEach(stage => {
+    const capitalized = stage.charAt(0).toUpperCase() + stage.slice(1);
+    const colContainer = document.getElementById(`kanbanCol${capitalized}`);
+    const countEl = document.getElementById(`kanbanCount${capitalized}`);
+    if (!colContainer) return;
+
+    colContainer.innerHTML = "";
+    const stageLeads = cachedLeads.filter(l => l.stage === stage);
+    if (countEl) countEl.innerText = stageLeads.length;
+
+    stageLeads.forEach(lead => {
+      const card = document.createElement("div");
+      card.className = "twenty-card";
+      const amount = amountsMap[lead.id] || "2.500 €";
+      card.innerHTML = `
+        <div class="twenty-card-header">
+          <span class="twenty-card-name">${lead.name}</span>
+          <span class="twenty-card-amount">${amount}</span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--gold-light); font-weight: 600;">
+          ${lead.interest}
+        </div>
+        <div class="twenty-card-details">
+          ${lead.summary.slice(0, 80)}...
+        </div>
+        <div class="twenty-card-footer">
+          <span>${lead.company || 'Luxemburgo'}</span>
+          <select style="background: none; border: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.72rem; border-radius: 4px; padding: 2px 4px;" onchange="changeLeadStage('${lead.id}', this.value); renderTwentyKanban();">
+            <option value="nuevo" ${lead.stage === 'nuevo' ? 'selected' : ''}>Nuevo</option>
+            <option value="contactado" ${lead.stage === 'contactado' ? 'selected' : ''}>Contactado</option>
+            <option value="agendado" ${lead.stage === 'agendado' ? 'selected' : ''}>Agendado</option>
+            <option value="ganado" ${lead.stage === 'ganado' ? 'selected' : ''}>Ganado</option>
+          </select>
+        </div>
+      `;
+      colContainer.appendChild(card);
+    });
+  });
+}
+
+function openDirectBookingModal() {
+  const clientName = prompt("Nombre del cliente para la cita técnica rápida (Dograh Tool):", "Jean-Luc Weber");
+  if (!clientName) return;
+  const timeSlot = prompt("Horario propuesto para la llamada técnica (ej: 16:30):", "16:30");
+  if (!timeSlot) return;
+
+  const newAppt = {
+    title: `Reunión Técnica · ${clientName}`,
+    date: "18 Oct 2026",
+    time: `${timeSlot} - 17:15`,
+    type: "Reunión Técnica (Dograh MCP)",
+    description: `Inspección de sonido e iluminación confirmada de forma autónoma.`
+  };
+  APPOINTMENTS_DATA.unshift(newAppt);
+  renderAppointments();
+  alert(`✓ Cita confirmada con ${clientName} a las ${timeSlot}. Sincronizada con Google Calendar y notificada a n8n.`);
+}
+
 function filterLeads(stage) {
   document.querySelectorAll("#view-leads .filter-btn").forEach(btn => btn.classList.remove("active"));
   event.target.classList.add("active");

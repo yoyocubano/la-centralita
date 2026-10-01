@@ -68,6 +68,7 @@ la llamada se transcribe en tiempo real → al colgar se extrae el lead
 
 - `HANDSHAKE.md` — este archivo (leer primero, actualizar siempre)
 - `index.html` — landing page interactiva y simulador para GitHub Pages
+- `docs/OPEN_SOURCE_REFERENCES.md` — documentación de arquitectura reutilizada (Twenty CRM, Metabase BI, Dograh Voice/MCP)
 - `panel/` — Panel del Cliente (monitor web en vivo: llamadas, transcripción en tiempo real, leads, agenda y estado)
 - `agent/agent.py` — worker de LiveKit Agents (STT → LLM → TTS + envío a n8n)
 - `agent/prompts.py` — guion del agente de voz
@@ -90,16 +91,11 @@ la llamada se transcribe en tiempo real → al colgar se extrae el lead
 - Probada la integración con n8n enviando payload de prueba: HTTP 200 recibido exitosamente en `centralita-test`.
 - ✅ **Página web de prueba y simulador desplegados en GitHub Pages**: `https://yoyocubano.github.io/la-centralita/`
 - ✅ **Panel del Cliente (Monitor Web en Vivo) construido y publicado**: `https://yoyocubano.github.io/la-centralita/panel/`
-  - Incluye: Módulo En Vivo con streaming de transcripción y waveform, Historial de llamadas con descarga de transcripciones, Bandeja de Leads interactiva con actualización de estados en LocalStorage, Agenda de citas en calendario mensual, y Monitor de Uptime y Salud del Pipeline.
-  - Arquitectura de datos desacoplada (`CentralitaDataProvider`) lista para conectar a eventos LiveKit / WebSocket.
-- ⚡ **Optimización de Fluidez Conversacional (Preparación para venta 990 €)**:
-  - **Afinado de Silero VAD**: `min_silence_duration=0.45s` y `min_speech_duration=0.08s` para turn-taking ágil sin pausas vacías incómodas.
-  - **Generación Preemptiva & Barge-in**: `preemptive_generation=True` y `allow_interruptions=True` en `agent/agent.py` para cortes fluidos al interrumpir.
-  - **Guion Conversacional Natural**: Guion de Sofía renovado con marcadores de escucha activa ("¡Por supuesto!", "¡Qué maravilla!"), puntuación fonética y pautas de recepcionista de eventos de lujo en Luxemburgo (`agent/prompts.py`).
-  - **Motor Web de Voz Natural**: Simulador en `index.html` y `panel/app.js` con selección de voces neurales en español, cadencia humana, sincronización precisa por eventos `onend` (sin timers ciegos) e interacción por micrófono (`SpeechRecognition`).
-- ⚡ **Separación de Arquitectura Backend vs Monitor del Cliente**:
-  - **Backend (`server/app.py`)**: FastAPI con WebSocket Hub `/ws/monitor`, endpoints de llamadas y leads, token generator para LiveKit y despacho de webhooks a n8n.
-  - **Monitor del Cliente (`panel/`)**: Web para el cliente final con auto-conexión WebSocket al backend o fallback automático a simulación interactiva local con micrófono.
+- ⚡ **Reutilización de Arquitectura Open Source Verificada (Twenty, Metabase, Dograh)**:
+  - **`twentyhq/twenty`**: Modelo de datos de leads normalizado (`Person`, `Opportunity`, `Activity.Call`), pipeline Kanban interactivo en el panel con cálculo de importes por etapa, y especificación de integración directa vía n8n REST API.
+  - **`metabase/metabase`**: Dashboard analítico de alto impacto en el monitor: tarjetas KPI ejecutivas con deltas porcentuales, embudo visual de conversión comercial (18 llamadas → 4 citas), distribución horaria de tráfico en Luxemburgo y métricas de latencia/SLA.
+  - **`dograh-hq/dograh`**: Tool-calling nativo para agendamiento de citas en `agent/agent.py` (`check_calendar_availability`, `book_technical_meeting`) con LiveKit Agents 1.8 (`@llm.function_tool`), widget de reserva rápida y sincronización de citas.
+  - **Documentación Completa**: Creado `docs/OPEN_SOURCE_REFERENCES.md` con el detalle de mapeos y justificación técnica.
 - ⏳ A la espera de las credenciales (LiveKit Cloud, Deepgram, DeepSeek) para configurar `.env` y levantar el worker.
 
 ### 2026-10-01 — moise
