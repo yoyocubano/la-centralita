@@ -26,3 +26,6 @@ design-package/
 
 # Caché local de Firebase CLI
 .firebase/
+
+# Vercel CLI
+.vercel/
