@@ -3,28 +3,23 @@
     {
       "target": "la-centralita",
       "public": "panel",
-      "ignore": [
-        "firebase.json",
-        "**/.*",
-        "**/node_modules/**"
-      ],
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "cleanUrls": true,
       "headers": [
         {
           "source": "**",
           "headers": [
-            {
-              "key": "X-Content-Type-Options",
-              "value": "nosniff"
-            },
-            {
-              "key": "X-Frame-Options",
-              "value": "SAMEORIGIN"
-            },
-            {
-              "key": "X-XSS-Protection",
-              "value": "1; mode=block"
-            }
+            { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https: wss:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" },
+            { "key": "X-Content-Type-Options", "value": "nosniff" },
+            { "key": "X-Frame-Options", "value": "DENY" },
+            { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+            { "key": "Permissions-Policy", "value": "camera=(), geolocation=(), microphone=(self)" },
+            { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" }
           ]
+        },
+        {
+          "source": "**/*.@(js|css)",
+          "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
         }
       ]
     }

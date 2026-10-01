@@ -1,1894 +1,1784 @@
 /**
- * LA CENTRALITA — MONITOR DEL CLIENTE (PANEL EN VIVO)
- * Sistema de monitorización en tiempo real para el dueño del negocio.
- * 
- * Capacidades:
- *  1. Conexión WebSocket en vivo al backend (/ws/monitor) con reconexión automática.
- *  2. Motor de síntesis de voz natural para Sofía (turn-taking sincronizado sin pausas robóticas).
- *  3. Reconocimiento de voz por micrófono (Web Speech API) para pruebas directas en vivo.
- *  4. Extracción dinámica de leads y sincronización persistente (LocalStorage + n8n webhook).
- *  5. Historial auditable de llamadas con descarga de transcripciones y agenda de eventos.
+ * LA CENTRALITA — PANEL DEL CLIENTE (MONITOR EN VIVO)
+ *
+ * Dos modos, siempre declarados en pantalla:
+ *  - EN VIVO: backend alcanzable + token de operador válido. Todos los datos salen del
+ *    backend (Google Sheets, eventos del agente de voz). Nunca se mezclan datos de ejemplo.
+ *  - DEMO: sin backend o sin token. Datos de ejemplo locales, con banner visible.
+ *
+ * Seguridad:
+ *  - Sin credenciales en el código. El token se introduce en el panel (o llega una vez
+ *    como #token=... en la URL, que se elimina al instante) y vive solo en sessionStorage.
+ *  - WebSocket autenticado por mensaje (el token no viaja en la URL).
+ *  - Cero inyección de HTML: todo el contenido dinámico usa textContent / nodos DOM.
+ *  - Sin handlers inline: eventos delegados vía data-action (CSP sin 'unsafe-inline').
  */
+"use strict";
 
 // ==============================================================================
-// 1. CAPA DE DATOS Y CONEXIÓN (DESACOPLADA BACKEND / DEMO)
+// 0. CONFIGURACIÓN, TOKEN Y UTILIDADES
 // ==============================================================================
 
-class CentralitaDataProvider {
-  async getCallsHistory() { throw new Error("Not implemented"); }
-  async getLeads() { throw new Error("Not implemented"); }
-  async updateLeadStage(id, stage) { throw new Error("Not implemented"); }
+const CONFIG = Object.assign({ apiBase: "" }, window.CENTRALITA_CONFIG || {});
+const TOKEN_KEY = "centralita_operator_token";
+const CLIENT_KEY = "welux_current_client";
+const STAGES = ["nuevo", "contactado", "agendado", "ganado"];
+
+/** Base de la API: config explícita, mismo origen si el backend sirve el panel, o null (sin backend). */
+function resolveApiBase() {
+  if (CONFIG.apiBase) return String(CONFIG.apiBase).replace(/\/$/, "");
+  const servedByBackend = window.location.pathname.startsWith("/panel");
+  return servedByBackend ? window.location.origin : null;
 }
 
-class MockCentralitaProvider extends CentralitaDataProvider {
-  constructor() {
-    super();
-    this.storageKeyLeads = "welux_centralita_leads_v4";
-    this.storageKeyCalls = "welux_centralita_calls_v4";
-    this.initDefaultData();
-  }
+const API_BASE = resolveApiBase();
 
-  initDefaultData() {
-    if (!localStorage.getItem(this.storageKeyCalls)) {
-      const defaultCalls = [
-        {
-          id: "call-101",
-          date: "Hoy, 13:42",
-          client: "Pierre Meyers",
-          phone: "+352 691 452 890",
-          duration: "02:18",
-          operator: "Sofía (IA)",
-          reason: "Alquiler Fotoespejo (Photobooth)",
-          hasLead: true,
-          transcript: `Sofía: ¡Hola! Gracias por comunicarte con nuestra centralita de servicios empresariales. Soy Sofía, ¿en qué podemos asesorarte hoy?
-Pierre Meyers: Hola Sofía, buenas tardes. Me llamo Pierre Meyers, de una consultora en Kirchberg. Queremos alquilar un fotoespejo interactivo photobooth para nuestra jornada de empresa el 14 de noviembre.
-Sofía: ¡Qué excelente iniciativa, Pierre! El fotoespejo interactivo es sensacional para dinamizar eventos corporativos, con impresiones instantáneas personalizadas con el logo de tu empresa. ¿Aproximadamente cuántos asistentes calculan?
-Pierre Meyers: Seremos unas 120 personas, en nuestras oficinas en Kirchberg. Mi número es el +352 691 452 890.
-Sofía: ¡Excelente elección! Tomo nota de todo, Pierre. Nuestro asesor de alquileres preparará la propuesta formal hoy mismo con las opciones de personalización. ¿Deseas agregar algún otro juego o inflable?
-Pierre Meyers: No, con el fotoespejo estamos perfectos. Quedo a la espera de su propuesta. ¡Muchas gracias!
-Sofía: Un auténtico placer, Pierre. ¡Que tengas un excelente día en Luxemburgo!`
-        },
-        {
-          id: "call-102",
-          date: "Hoy, 12:15",
-          client: "Camille Wagner",
-          phone: "+352 621 445 566",
-          duration: "01:45",
-          operator: "Sofía (IA)",
-          reason: "Asesoría de Negocios y Procesos",
-          hasLead: true,
-          transcript: `Sofía: ¡Hola! Te atiende Sofía de la centralita empresarial. ¿Cómo podemos colaborar con tu negocio hoy?
-Camille Wagner: Hola, hablo de Wagner Logistics. Buscamos asesoría de negocios para reestructurar nuestros flujos de ventas y automatizar la atención comercial telefónica 24/7.
-Sofía: ¡Comprendo perfectamente, Camille! Ayudamos a pymes en Luxemburgo a digitalizar y optimizar sus procesos comerciales. ¿Te vendría bien agendar una sesión de diagnóstico de 30 minutos?
-Camille Wagner: Sí, estupendo. Al teléfono +352 621 445 566.
-Sofía: Perfecto Camille, queda coordinada la llamada con nuestro consultor estratégico. ¡Buen día!`
-        },
-        {
-          id: "call-103",
-          date: "Hoy, 11:05",
-          client: "Alexandre Dupont",
-          phone: "+352 661 889 012",
-          duration: "03:10",
-          operator: "Sofía (IA)",
-          reason: "Web Corporativa, Chatbot & CRM",
-          hasLead: true,
-          transcript: `Sofía: ¡Hola! Gracias por llamar a nuestra división de servicios digitales y B2B. Soy Sofía, ¿en qué te puedo apoyar?
-Alexandre Dupont: Hola Sofía, necesitamos modernizar la página web de nuestro despacho legal en Ciudad de Luxemburgo, añadir un chatbot con IA para clientes y conectar todo al CRM Twenty.
-Sofía: ¡Excelente proyecto, Alexandre! Desarrollamos portales web optimizados y chatbots autónomos que capturan clientes y los registran en Twenty. ¿Para qué fecha les gustaría tenerlo operativo?
-Alexandre Dupont: Para antes de diciembre. Mi móvil directo es el +352 661 889 012.
-Sofía: Tomo nota, Alexandre. Agendamos una llamada de especificación técnica hoy mismo. Te contactamos en breve.`
-        },
-        {
-          id: "call-104",
-          date: "Hoy, 10:20",
-          client: "Marc Becker",
-          phone: "+352 691 334 221",
-          duration: "02:05",
-          operator: "Sofía (IA)",
-          reason: "Alquiler Inflables (Billar & Minigolf)",
-          hasLead: true,
-          transcript: `Sofía: Centralita de servicios y alquileres, le atiende Sofía. ¿En qué le puedo colaborar?
-Marc Becker: Buenas, hablo de un concesionario en Bertrange. Queremos alquilar inflables interactivos de minigolf y billar para una jornada de puertas abiertas el 22 de octubre.
-Sofía: ¡Fantástica idea Marc! Los inflables de minigolf y billar gigante son un éxito para dinamizar eventos de empresa. ¿Sería para entrega y montaje completo en Bertrange?
-Marc Becker: Sí, exactamente. Mi contacto es el +352 691 334 221.
-Sofía: Perfecto Marc, bloqueamos la fecha provisional y te enviamos el presupuesto con transporte y montaje incluidos.`
-        }
-      ];
-      localStorage.setItem(this.storageKeyCalls, JSON.stringify(defaultCalls));
-    }
+function storageGet(store, key) {
+  try { return store.getItem(key); } catch { return null; }
+}
 
-    if (!localStorage.getItem(this.storageKeyLeads)) {
-      const defaultLeads = [
-        {
-          id: "lead-1",
-          name: "Pierre Meyers",
-          phone: "+352 691 452 890",
-          company: "Consultora Kirchberg",
-          interest: "Alquiler Fotoespejo (Photobooth)",
-          eventDate: "14 Nov 2026",
-          stage: "nuevo",
-          summary: "Alquiler de fotoespejo interactivo para jornada de empresa (120 personas) en Kirchberg. Impresiones personalizadas con logo.",
-          timestamp: "Hoy, 13:42"
-        },
-        {
-          id: "lead-2",
-          name: "Camille Wagner",
-          phone: "+352 621 445 566",
-          company: "Wagner Logistics SARL",
-          interest: "Asesoría de Negocios y Procesos",
-          eventDate: "28 Oct 2026",
-          stage: "contactado",
-          summary: "Consultoría estratégica para optimización de flujos comerciales y atención telefónica automatizada 24/7.",
-          timestamp: "Hoy, 12:15"
-        },
-        {
-          id: "lead-3",
-          name: "Alexandre Dupont",
-          phone: "+352 661 889 012",
-          company: "Dupont & Partners Law",
-          interest: "Web Corporativa, Chatbot & CRM",
-          eventDate: "15 Nov 2026",
-          stage: "agendado",
-          summary: "Desarrollo web corporativo, chatbot con IA conversacional y despliegue del CRM Twenty para despacho en Luxemburgo.",
-          timestamp: "Hoy, 11:05"
-        },
-        {
-          id: "lead-4",
-          name: "Marc Becker",
-          phone: "+352 691 334 221",
-          company: "Becker Auto Bertrange",
-          interest: "Alquiler Inflables (Billar & Minigolf)",
-          eventDate: "22 Oct 2026",
-          stage: "agendado",
-          summary: "Reserva de inflables interactivos de minigolf y billar para jornada de puertas abiertas en Bertrange.",
-          timestamp: "Hoy, 10:20"
-        },
-        {
-          id: "lead-5",
-          name: "Sophie Laurent",
-          phone: "+352 661 772 334",
-          company: "Particular",
-          interest: "Gala / Boda Château Septfontaines",
-          eventDate: "15 May 2027",
-          stage: "ganado",
-          summary: "Producción audiovisual y luces arquitectónicas para evento privado de gala. Contratado con DocuSeal.",
-          timestamp: "Ayer, 16:30"
-        }
-      ];
-      localStorage.setItem(this.storageKeyLeads, JSON.stringify(defaultLeads));
-    }
-  }
+function storageSet(store, key, value) {
+  try { store.setItem(key, value); } catch { /* almacenamiento bloqueado: se ignora */ }
+}
 
-  async getCallsHistory() {
-    return JSON.parse(localStorage.getItem(this.storageKeyCalls) || "[]");
-  }
+function storageRemove(store, key) {
+  try { store.removeItem(key); } catch { /* ignorado */ }
+}
 
-  async getLeads() {
-    return JSON.parse(localStorage.getItem(this.storageKeyLeads) || "[]");
-  }
+/** Captura un token pasado una vez por URL (#token= o ?token=) y lo borra de la barra de direcciones. */
+function captureTokenFromUrl() {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const queryParams = new URLSearchParams(window.location.search);
+  const token = hashParams.get("token") || queryParams.get("token");
+  if (!token) return;
+  storageSet(sessionStorage, TOKEN_KEY, token.trim());
+  queryParams.delete("token");
+  const query = queryParams.toString();
+  history.replaceState(null, "", window.location.pathname + (query ? `?${query}` : ""));
+}
 
-  async saveNewCall(call) {
-    const calls = await this.getCallsHistory();
-    calls.unshift(call);
-    localStorage.setItem(this.storageKeyCalls, JSON.stringify(calls));
-  }
+function getToken() {
+  return storageGet(sessionStorage, TOKEN_KEY) || "";
+}
 
-  async saveNewLead(lead) {
-    const leads = await this.getLeads();
-    leads.unshift(lead);
-    localStorage.setItem(this.storageKeyLeads, JSON.stringify(leads));
-  }
+function jsonParseSafe(raw, fallback = null) {
+  try { return JSON.parse(raw); } catch { return fallback; }
+}
 
-  async updateLeadStage(leadId, newStage) {
-    const leads = await this.getLeads();
-    const target = leads.find(l => l.id === leadId);
-    if (target) {
-      target.stage = newStage;
-      localStorage.setItem(this.storageKeyLeads, JSON.stringify(leads));
-      return true;
-    }
-    return false;
+function $(id) {
+  return document.getElementById(id);
+}
+
+function setText(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text;
+}
+
+function nowTimeLabel() {
+  const now = new Date();
+  return `${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+}
+
+function downloadBlob(content, mime, filename) {
+  const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+/** Celda CSV segura: escapa comillas y neutraliza fórmulas (CWE-1236). */
+function csvCell(value) {
+  let text = value === null || value === undefined ? "" : String(value);
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function digitsOnly(phone) {
+  return String(phone || "").replace(/[^0-9]/g, "");
+}
+
+class ApiError extends Error {
+  constructor(status, detail) {
+    super(detail || `HTTP ${status}`);
+    this.status = status;
   }
 }
 
-class HybridCentralitaProvider extends MockCentralitaProvider {
-  constructor() {
-    super();
-    this.apiAvailable = null;
-  }
-
-  async checkApi() {
-    if (this.apiAvailable !== null) return this.apiAvailable;
-    try {
-      const res = await fetch("/api/status", { method: "GET", headers: { "Accept": "application/json" } });
-      this.apiAvailable = res.ok;
-    } catch {
-      this.apiAvailable = false;
-    }
-    return this.apiAvailable;
-  }
-
-  async getCallsHistory() {
-    if (await this.checkApi()) {
-      try {
-        const res = await fetch("/api/calls");
-        if (res.ok) {
-          const data = await res.json();
-          if (data.calls && data.calls.length > 0) {
-            const mapped = data.calls.map(c => ({
-              id: c.call_id || c.id || "call-" + Math.random().toString(36).substr(2, 6),
-              date: c.timestamp ? new Date(c.timestamp).toLocaleString("es-ES", { timeZone: "Europe/Luxembourg" }) : "Reciente",
-              client: (c.lead && c.lead.nombre) || c.client || "Cliente Web",
-              phone: (c.lead && c.lead.telefono) || c.phone || "No especificado",
-              duration: c.duration || "01:30",
-              operator: "Sofía (IA)",
-              reason: (c.lead && c.lead.motivo) || c.reason || "Consulta comercial",
-              hasLead: Boolean(c.lead),
-              transcript: typeof c.transcript === "string" ? c.transcript : JSON.stringify(c.transcript || []),
-            }));
-            const mockCalls = await super.getCallsHistory();
-            const allCalls = [...mapped];
-            for (const mc of mockCalls) {
-              if (!allCalls.some(ac => ac.phone === mc.phone || ac.id === mc.id)) {
-                allCalls.push(mc);
-              }
-            }
-            return allCalls;
-          }
-        }
-      } catch (e) {
-        console.warn("[DataProvider] Error consultando /api/calls, recurriendo a local:", e);
-      }
-    }
-    return super.getCallsHistory();
-  }
-
-  async getLeads() {
-    if (await this.checkApi()) {
-      try {
-        const res = await fetch("/api/leads");
-        if (res.ok) {
-          const data = await res.json();
-          if (data && Array.isArray(data.leads)) {
-            return data.leads.map((l, idx) => ({
-              id: l.id || `lead-sheet-${idx}`,
-              name: l.nombre || l.name || "Contacto",
-              phone: l.telefono || l.phone || "No indicado",
-              company: l.empresa || l.company || "Empresa / Particular",
-              interest: l.motivo || l.interest || "Consulta",
-              eventDate: l.fecha_evento || l.eventDate || "A convenir",
-              stage: l.stage || "nuevo",
-              summary: l.detalles || l.summary || "Registro en Google Sheets",
-              timestamp: l.timestamp_lux || l.timestamp || "Hoy",
-              docusealSigned: l.docuseal_status === "FIRMADO",
-              docusealStatus: l.docuseal_status || "BORRADOR",
-              docusealUrl: l.docuseal_url || null,
-            }));
-          }
-        }
-      } catch (e) {
-        console.warn("[DataProvider] Error consultando /api/leads:", e);
-      }
-      return [];
-    }
-    return super.getLeads();
-  }
-}
-
-const dataProvider = new HybridCentralitaProvider();
-
-// ==============================================================================
-// 2. CONEXIÓN WEBSOCKET AL BACKEND
-// ==============================================================================
-
-let backendSocket = null;
-let isBackendConnected = false;
-
-function initBackendWebSocket() {
-  const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const wsHost = isLocal ? "localhost:8080" : window.location.host;
-  // Obtención de token autorizador para el WebSocket (H-004)
-  const urlParams = new URLSearchParams(window.location.search);
-  const token = urlParams.get("token") || localStorage.getItem("centralita_monitor_token") || "centralita-secure-token-2026";
-  const wsUrl = `${protocol}//${wsHost}/ws/monitor?token=${encodeURIComponent(token)}`;
-
+/** fetch al backend con token y timeout. */
+async function apiFetch(path, { method = "GET", body = null, auth = true, timeoutMs = 10000 } = {}) {
+  if (API_BASE === null) throw new ApiError(0, "Sin backend configurado");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const headers = { "Accept": "application/json" };
+  if (body !== null) headers["Content-Type"] = "application/json";
+  if (auth && getToken()) headers["Authorization"] = `Bearer ${getToken()}`;
   try {
-    backendSocket = new WebSocket(wsUrl);
-
-    backendSocket.onopen = () => {
-      isBackendConnected = true;
-      console.log("[Monitor] Conectado al backend WebSocket seguro:", wsUrl);
-      updateConnectionPill("BACKEND CONECTADO", "ok", "< 25 ms RTT");
-    };
-
-    backendSocket.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        handleIncomingBackendEvent(msg);
-      } catch (e) {
-        console.error("Error parseando mensaje del socket:", e);
-      }
-    };
-
-    backendSocket.onclose = (event) => {
-      isBackendConnected = false;
-      if (event.code === 4001) {
-        console.warn("[Monitor] Conexión WebSocket rechazada por falta de autenticación (4001 Unauthorized).");
-        updateConnectionPill("NO AUTORIZADO (4001)", "error", "Token Inválido");
-        return;
-      }
-      updateConnectionPill("MODO DEMO ACTIVO", "standby", "Simulación Local");
-      // Reintento en segundo plano
-      setTimeout(initBackendWebSocket, 15000);
-    };
-
-    backendSocket.onerror = () => {
-      isBackendConnected = false;
-      updateConnectionPill("MODO DEMO ACTIVO", "standby", "Simulación Local");
-    };
+    const res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body !== null ? JSON.stringify(body) : null,
+      signal: controller.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.detail || `HTTP ${res.status}`);
+    return data;
   } catch (err) {
-    console.log("[Monitor] Servidor backend no disponible en este host. Ejecutando en Modo Demo.");
-    updateConnectionPill("MODO DEMO ACTIVO", "standby", "Simulación Local");
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(0, err.name === "AbortError" ? "Tiempo de espera agotado" : "Backend no alcanzable");
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+// ==============================================================================
+// 1. ESTADO GLOBAL Y MODO (EN VIVO / DEMO)
+// ==============================================================================
+
+const state = {
+  mode: "connecting",          // connecting | live | demo
+  calls: [],
+  leads: [],
+  leadsMeta: null,             // { source, degraded, sheet_error, rows_needing_repair }
+  appointments: [],
+  callFilter: "all",
+  leadFilter: "all",
+  leadsView: "cards",
+};
+
+function isLive() {
+  return state.mode === "live";
+}
+
+function setMode(mode, message, tone = "info") {
+  state.mode = mode;
+  document.body.dataset.mode = mode;
+  const banner = $("modeBanner");
+  if (banner) {
+    banner.hidden = !message;
+    banner.dataset.tone = tone;
+  }
+  setText("modeBannerText", message || "");
+  const btnConnect = $("btnConnectBackend");
+  if (btnConnect) btnConnect.hidden = mode === "live" || API_BASE === null;
+  setText("modeTag", mode === "live" ? "Fase 1 · Operación en vivo" : "Fase 1 · Modo demo (datos de ejemplo)");
 }
 
 function updateConnectionPill(text, status, rtt) {
-  const textEl = document.getElementById("connText");
-  const rttEl = document.getElementById("liveLatencyBadge");
-  if (textEl) textEl.innerText = text;
-  if (rttEl) rttEl.innerText = rtt;
+  setText("connText", text);
+  if (rtt !== undefined) setText("liveLatencyBadge", rtt);
+  const dot = $("connDot");
+  if (dot) dot.dataset.status = status;
+  const navDot = $("navStatusDot");
+  if (navDot) navDot.dataset.status = status;
 }
 
-function handleIncomingBackendEvent(event) {
-  if (event.type === "call_started") {
-    switchTab("envivo");
-    startLiveCallView(event.caller || "Cliente Desconocido", event.phone || "+352 ...");
-  } else if (event.type === "transcript_delta") {
-    appendStreamTurn({
-      role: event.role === "assistant" ? "agent" : "customer",
-      author: event.role === "assistant" ? "Sofía (IA WELUX)" : "Cliente",
-      time: event.time || "00:00",
-      text: event.text
-    });
-  } else if (event.type === "call_ended") {
-    if (event.lead) {
-      updateExtractedLeadCard(event.lead);
-      const newLead = {
-        id: event.lead.id || "lead-" + Date.now(),
-        name: event.lead.nombre || "Contacto",
-        phone: event.lead.telefono || "No indicado",
-        company: event.lead.empresa || "Empresa / Particular",
-        interest: event.lead.motivo || "Servicios",
-        eventDate: event.lead.fecha_evento || "A convenir",
-        stage: "nuevo",
-        summary: event.lead.detalles || "Registrado en llamada",
-        timestamp: "Ahora mismo",
-        docusealStatus: event.lead.docuseal_status || "BORRADOR",
-      };
-      dataProvider.saveNewLead(newLead);
-      renderLeadsTable();
-      renderKanbanBoard();
-    }
-    renderCallsTable();
-  } else if (event.type === "docuseal_update") {
-    console.log("[Monitor] Actualización de contrato DocuSeal:", event);
-    renderLeadsTable();
-    renderKanbanBoard();
+// ==============================================================================
+// 2. PROVEEDORES DE DATOS
+// ==============================================================================
+
+/** Datos de EJEMPLO para el modo demo (nunca se usan en modo en vivo). */
+const DEMO_CALLS = [
+  {
+    id: "demo-call-101", date: "Hoy, 13:42", client: "Pierre Meyers", phone: "+352 691 000 101",
+    duration: "02:18", operator: "Sofía (IA)", reason: "Alquiler Fotoespejo (Photobooth)", hasLead: true,
+    transcript: "Sofía: ¡Hola! Gracias por llamar. Soy Sofía, ¿en qué podemos asesorarte hoy?\nPierre Meyers: Queremos alquilar un fotoespejo para nuestra jornada de empresa el 14 de noviembre.\nSofía: ¡Excelente iniciativa! ¿Cuántos asistentes calculan?\nPierre Meyers: Unas 120 personas en Kirchberg.\nSofía: Tomo nota, el equipo te enviará la propuesta hoy mismo.",
+  },
+  {
+    id: "demo-call-102", date: "Hoy, 12:15", client: "Camille Wagner", phone: "+352 621 000 102",
+    duration: "01:45", operator: "Sofía (IA)", reason: "Asesoría de Negocios y Procesos", hasLead: true,
+    transcript: "Sofía: Te atiende Sofía, ¿cómo podemos ayudarte?\nCamille Wagner: Buscamos asesoría para automatizar la atención comercial telefónica.\nSofía: ¿Te vendría bien una sesión de diagnóstico de 30 minutos?\nCamille Wagner: Sí, estupendo.",
+  },
+  {
+    id: "demo-call-103", date: "Ayer, 11:05", client: "Alexandre Dupont", phone: "+352 661 000 103",
+    duration: "03:10", operator: "Sofía (IA)", reason: "Web Corporativa, Chatbot & CRM", hasLead: false,
+    transcript: "Sofía: ¡Hola! Soy Sofía, ¿en qué te puedo apoyar?\nAlexandre Dupont: Solo quería información general, gracias.",
+  },
+];
+
+const DEMO_LEADS = [
+  { id: "demo-lead-1", name: "Pierre Meyers", phone: "+352 691 000 101", company: "Consultora Kirchberg", interest: "Alquiler Fotoespejo (Photobooth)", eventDate: "14 Nov 2026", stage: "nuevo", summary: "Fotoespejo para jornada de empresa (120 personas) en Kirchberg.", timestamp: "Hoy, 13:42", amount: "Por cotizar", docusealStatus: "BORRADOR" },
+  { id: "demo-lead-2", name: "Camille Wagner", phone: "+352 621 000 102", company: "Wagner Logistics SARL", interest: "Asesoría de Negocios y Procesos", eventDate: "28 Oct 2026", stage: "contactado", summary: "Optimización de flujos comerciales y atención telefónica 24/7.", timestamp: "Hoy, 12:15", amount: "Por cotizar", docusealStatus: "BORRADOR" },
+  { id: "demo-lead-3", name: "Marc Becker", phone: "+352 691 000 104", company: "Becker Auto Bertrange", interest: "Alquiler Inflables (Billar & Minigolf)", eventDate: "22 Oct 2026", stage: "agendado", summary: "Inflables de minigolf y billar para jornada de puertas abiertas.", timestamp: "Ayer, 10:20", amount: "Por cotizar", docusealStatus: "ENVIADO" },
+  { id: "demo-lead-4", name: "Sophie Laurent", phone: "+352 661 000 105", company: "Particular", interest: "Producción técnica de gala", eventDate: "15 May 2027", stage: "ganado", summary: "Producción audiovisual e iluminación para gala privada.", timestamp: "Ayer, 16:30", amount: "Por cotizar", docusealStatus: "FIRMADO" },
+];
+
+const DEMO_APPOINTMENTS = [
+  { id: "demo-appt-1", client_name: "Sophie Laurent", event_type: "Reunión técnica", requested_date: isoDateOffset(3), requested_time: "16:30", status: "PENDIENTE_CONFIRMACION" },
+  { id: "demo-appt-2", client_name: "Marc Becker", event_type: "Reunión comercial", requested_date: isoDateOffset(7), requested_time: "11:00", status: "PENDIENTE_CONFIRMACION" },
+];
+
+function isoDateOffset(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+class DemoProvider {
+  constructor() {
+    this.callsKey = "welux_centralita_demo_calls_v5";
+    this.leadsKey = "welux_centralita_demo_leads_v5";
+    if (!storageGet(localStorage, this.callsKey)) storageSet(localStorage, this.callsKey, JSON.stringify(DEMO_CALLS));
+    if (!storageGet(localStorage, this.leadsKey)) storageSet(localStorage, this.leadsKey, JSON.stringify(DEMO_LEADS));
+  }
+
+  async getCalls() {
+    return jsonParseSafe(storageGet(localStorage, this.callsKey), DEMO_CALLS) || DEMO_CALLS;
+  }
+
+  async getLeads() {
+    const leads = jsonParseSafe(storageGet(localStorage, this.leadsKey), DEMO_LEADS) || DEMO_LEADS;
+    return { leads, meta: { source: "demo", degraded: false } };
+  }
+
+  async getAppointments() {
+    return DEMO_APPOINTMENTS;
+  }
+
+  async saveCall(call) {
+    const calls = await this.getCalls();
+    calls.unshift(call);
+    storageSet(localStorage, this.callsKey, JSON.stringify(calls.slice(0, 50)));
+  }
+
+  async updateLeadStage(leadId, stage) {
+    const { leads } = await this.getLeads();
+    const target = leads.find(l => l.id === leadId);
+    if (target) target.stage = stage;
+    storageSet(localStorage, this.leadsKey, JSON.stringify(leads));
   }
 }
 
-// ==============================================================================
-// 3. MOTOR DE VOZ NATURAL DE SOFÍA (WEB SPEECH CON TONO CÁLIDO)
-// ==============================================================================
+class LiveProvider {
+  async getCalls() {
+    const data = await apiFetch("/api/calls");
+    return (data.calls || []).map((c, idx) => ({
+      id: c.call_id || `call-${idx}`,
+      date: c.timestamp ? new Date(c.timestamp).toLocaleString("es-ES", { timeZone: "Europe/Luxembourg" }) : "—",
+      client: (c.lead && c.lead.nombre) || "Cliente sin identificar",
+      phone: (c.lead && c.lead.telefono) || "—",
+      duration: c.duration || "—",
+      operator: c.agent || "Sofía (IA)",
+      reason: (c.lead && c.lead.motivo) || "—",
+      hasLead: Boolean(c.lead && (c.lead.nombre || c.lead.telefono)),
+      transcript: typeof c.transcript === "string" ? c.transcript : JSON.stringify(c.transcript || "", null, 2),
+      isToday: c.timestamp ? new Date(c.timestamp).toDateString() === new Date().toDateString() : false,
+    }));
+  }
 
-let isAudioMuted = false;
-let isSofiaSpeaking = false;
-let cachedVoice = null;
+  async getLeads() {
+    const data = await apiFetch("/api/leads");
+    const leads = (data.leads || []).map((l, idx) => ({
+      id: l.id || `lead-${idx}`,
+      name: l.nombre || l.name || "Sin nombre",
+      phone: l.telefono || l.phone || "—",
+      company: l.empresa || l.company || "—",
+      interest: l.motivo || l.interest || "—",
+      eventDate: l.fecha_evento || l.eventDate || "A convenir",
+      stage: STAGES.includes(String(l.stage || "").toLowerCase()) ? String(l.stage).toLowerCase() : "nuevo",
+      summary: l.detalles || l.summary || "",
+      timestamp: l.timestamp_lux || l.timestamp || "—",
+      amount: l.amount || l.valor_eur || "Por cotizar",
+      docusealStatus: l.docuseal_status || "BORRADOR",
+      docusealUrl: l.docuseal_url || null,
+    }));
+    return { leads, meta: data };
+  }
 
-function getBestSpanishVoice() {
-  if (cachedVoice) return cachedVoice;
-  if (!('speechSynthesis' in window)) return null;
+  async getAppointments() {
+    const data = await apiFetch("/api/appointments");
+    return data.appointments || [];
+  }
 
-  const voices = window.speechSynthesis.getVoices();
-  // Priorizar voces neurales/naturales en español
-  const preferred = voices.find(v => 
-    v.lang.startsWith("es") && (
-      v.name.includes("Google") || 
-      v.name.includes("Monica") || 
-      v.name.includes("Paulina") || 
-      v.name.includes("Helena") || 
-      v.name.includes("Natural") || 
-      v.name.includes("Jorge")
-    )
-  );
-  cachedVoice = preferred || voices.find(v => v.lang.startsWith("es")) || null;
-  return cachedVoice;
+  async saveCall() {
+    /* En vivo las llamadas las registra el backend. */
+  }
+
+  async updateLeadStage(leadId, stage) {
+    await apiFetch(`/api/leads/${encodeURIComponent(leadId)}/stage`, { method: "POST", body: { stage } });
+  }
 }
 
-if ('speechSynthesis' in window) {
-  window.speechSynthesis.onvoiceschanged = () => {
-    cachedVoice = null;
-    getBestSpanishVoice();
-  };
-}
+let provider = new DemoProvider();
 
-function speakSofia(text, onEnd) {
-  if (isAudioMuted || !('speechSynthesis' in window)) {
-    if (onEnd) setTimeout(onEnd, 1400);
+// ==============================================================================
+// 3. ARRANQUE: DETECCIÓN DE MODO
+// ==============================================================================
+
+async function bootstrapMode() {
+  captureTokenFromUrl();
+
+  if (API_BASE === null) {
+    enterDemoMode("MODO DEMO — este despliegue no tiene backend configurado: todos los datos son de ejemplo.");
+    return;
+  }
+  if (!getToken()) {
+    enterDemoMode("MODO DEMO — introduce el token de operador para ver datos reales.");
     return;
   }
 
-  window.speechSynthesis.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = "es-ES";
-  utter.rate = 1.05;   // Ritmo ágil y natural, sin arrastrar palabras
-  utter.pitch = 1.02;  // Tono cálido, amigable y empático
+  try {
+    const details = await apiFetch("/api/status/details");
+    enterLiveMode(details);
+  } catch (err) {
+    if (err.status === 401 || err.status === 403) {
+      storageRemove(sessionStorage, TOKEN_KEY);
+      enterDemoMode("Token de operador no válido. Mostrando datos de ejemplo.", "error");
+    } else if (err.status === 503) {
+      enterDemoMode("El backend no tiene la autenticación configurada (CENTRALITA_AUTH_TOKEN).", "error");
+    } else {
+      enterDemoMode(`MODO DEMO — backend no disponible (${err.message}). Datos de ejemplo.`, "error");
+    }
+  }
+}
 
-  const voice = getBestSpanishVoice();
-  if (voice) utter.voice = voice;
+function enterDemoMode(message, tone = "warning") {
+  provider = new DemoProvider();
+  setMode("demo", message, tone);
+  updateConnectionPill("MODO DEMO", "standby", "— ms");
+  loadDemoLiveCall();
+  refreshAll();
+}
 
-  isSofiaSpeaking = true;
-  document.getElementById("typingText").innerText = "Sofía hablando con el cliente...";
+function enterLiveMode(details) {
+  provider = new LiveProvider();
+  setMode("live", "", "info");
+  updateConnectionPill("BACKEND CONECTADO", "ok");
+  resetLiveCallView();
+  renderServiceStatus(details);
+  refreshAll();
+  monitorSocket.connect();
+  startPolling();
+}
 
-  utter.onend = () => {
-    isSofiaSpeaking = false;
-    document.getElementById("typingText").innerText = "Sofía escuchando al cliente...";
-    if (onEnd) setTimeout(onEnd, 350); // Pausa de respiración natural humana
-  };
+function promptOperatorToken() {
+  const token = (window.prompt("Token de operador (CENTRALITA_AUTH_TOKEN):") || "").trim();
+  if (!token) return;
+  storageSet(sessionStorage, TOKEN_KEY, token);
+  bootstrapMode();
+}
 
-  utter.onerror = () => {
-    isSofiaSpeaking = false;
-    document.getElementById("typingText").innerText = "Sofía en espera...";
-    if (onEnd) onEnd();
-  };
+async function refreshAll() {
+  await Promise.allSettled([renderCallsTable(), refreshLeads(), refreshAppointments()]);
+  await refreshSystemMetrics();
+}
 
-  window.speechSynthesis.speak(utter);
+let pollTimer = null;
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  // El Sheet es la fuente de verdad: polling ligero (el backend cachea 10 s).
+  pollTimer = setInterval(() => {
+    if (!isLive() || document.hidden) return;
+    refreshLeads();
+    refreshSystemMetrics();
+  }, 15000);
 }
 
 // ==============================================================================
-// 4. MÓDULO 1: LLAMADA EN VIVO (EN VIVO STREAMING)
+// 4. WEBSOCKET DEL MONITOR (AUTH POR MENSAJE, BACKOFF, HEARTBEAT, RTT REAL)
 // ==============================================================================
 
-const LIVE_CALL_SCRIPT = [
-  { role: "agent", author: "Sofía (IA WELUX)", time: "00:03", text: "¡Hola! Gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?" },
-  { role: "customer", author: "Jean-Luc Weber", time: "00:15", text: "Hola Sofía, buenas tardes. Me llamo Jean-Luc Weber, de una consultora aquí en Kirchberg. Queremos organizar nuestra gala de fin de año el 18 de noviembre para unas 150 personas." },
-  { role: "agent", author: "Sofía (IA WELUX)", time: "00:30", text: "¡Qué maravilla de evento, Jean-Luc! Por supuesto, contamos con sistemas completos de iluminación arquitectónica, audio profesional line-array y servicio de DJ para galas corporativas. ¿Ya tienen el salón reservado?" },
-  { role: "customer", author: "Jean-Luc Weber", time: "00:48", text: "Sí, en el salón principal de Kirchberg. Necesitaremos también un par de micrófonos inalámbricos para los discursos iniciales. Mi móvil de contacto es el +352 691 452 890." },
-  { role: "agent", author: "Sofía (IA WELUX)", time: "01:05", text: "¡Excelente elección! Tomo nota de los micrófonos y el recinto. Nuestro equipo de producción preparará la cotización personalizada hoy mismo y te la enviaremos de inmediato. ¿Hay algún otro detalle técnico?" },
-  { role: "customer", author: "Jean-Luc Weber", time: "01:22", text: "No, con eso estamos perfectos por ahora. Quedo a la espera de su propuesta. ¡Muchas gracias!" },
-  { role: "agent", author: "Sofía (IA WELUX)", time: "01:30", text: "Un auténtico placer, Jean-Luc. ¡Que tengas un excelente día en Luxemburgo!" }
-];
+class MonitorSocket {
+  constructor() {
+    this.ws = null;
+    this.attempt = 0;
+    this.reconnectTimer = null;
+    this.heartbeatTimer = null;
+    this.pingSentAt = null;
+    this.stopped = false;
+  }
 
-let streamIndex = 0;
+  url() {
+    const base = new URL(API_BASE);
+    base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+    base.pathname = "/ws/monitor";
+    base.search = "";
+    return base.toString();
+  }
+
+  connect() {
+    if (API_BASE === null || !getToken()) return;
+    this.stopped = false;
+    clearTimeout(this.reconnectTimer);
+    try {
+      this.ws = new WebSocket(this.url());
+    } catch {
+      this.scheduleReconnect();
+      return;
+    }
+    this.ws.onopen = () => {
+      this.ws.send(JSON.stringify({ action: "auth", token: getToken() }));
+    };
+    this.ws.onmessage = (event) => {
+      const msg = jsonParseSafe(event.data);
+      if (msg) this.handle(msg);
+    };
+    this.ws.onclose = (event) => {
+      this.stopHeartbeat();
+      if (event.code === 4001) {
+        updateConnectionPill("NO AUTORIZADO", "error", "—");
+        storageRemove(sessionStorage, TOKEN_KEY);
+        enterDemoMode("El backend rechazó el token del monitor (4001). Introduce un token válido.", "error");
+        this.stopped = true;
+        return;
+      }
+      if (event.code === 4003) {
+        updateConnectionPill("ORIGEN NO PERMITIDO", "error", "—");
+        setMode("live", "Este dominio no está en CORS_ALLOWED_ORIGINS del backend: sin eventos en vivo.", "error");
+        this.stopped = true;
+        return;
+      }
+      if (!this.stopped) {
+        updateConnectionPill("RECONECTANDO…", "standby");
+        this.scheduleReconnect();
+      }
+    };
+    this.ws.onerror = () => { /* onclose gestiona el reintento */ };
+  }
+
+  handle(msg) {
+    if (msg.type === "connection_established") {
+      this.attempt = 0;
+      updateConnectionPill("EN VIVO", "ok");
+      if (state.mode === "live") setMode("live", "", "info");
+      this.startHeartbeat();
+      return;
+    }
+    if (msg.type === "pong") {
+      if (this.pingSentAt !== null) {
+        const rtt = Math.round(performance.now() - this.pingSentAt);
+        setText("liveLatencyBadge", `${rtt} ms RTT`);
+        setText("kpiRtt", `${rtt} ms`);
+        this.pingSentAt = null;
+      }
+      return;
+    }
+    handleIncomingBackendEvent(msg);
+  }
+
+  startHeartbeat() {
+    this.stopHeartbeat();
+    const ping = () => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.pingSentAt = performance.now();
+        this.ws.send(JSON.stringify({ action: "ping" }));
+      }
+    };
+    ping();
+    this.heartbeatTimer = setInterval(ping, 25000);
+  }
+
+  stopHeartbeat() {
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+  }
+
+  scheduleReconnect() {
+    // Backoff exponencial con jitter: 1 s, 2 s, 4 s … máx. 30 s.
+    const delay = Math.min(30000, 1000 * 2 ** this.attempt) * (0.5 + Math.random() / 2);
+    this.attempt = Math.min(this.attempt + 1, 6);
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+  }
+
+  reconnectNow() {
+    if (this.stopped || !isLive()) return;
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
+    this.attempt = 0;
+    this.connect();
+  }
+}
+
+const monitorSocket = new MonitorSocket();
+window.addEventListener("online", () => monitorSocket.reconnectNow());
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) monitorSocket.reconnectNow();
+});
+
+function handleIncomingBackendEvent(event) {
+  switch (event.type) {
+    case "call_started":
+      startRealCallView(event);
+      break;
+    case "transcript_delta":
+      appendStreamTurn({
+        role: event.role === "assistant" ? "agent" : "customer",
+        author: event.role === "assistant" ? "Sofía (IA WELUX)" : "Cliente",
+        time: event.duration || nowTimeLabel(),
+        text: event.text,
+      });
+      break;
+    case "call_ended":
+      endRealCallView(event);
+      renderCallsTable();
+      refreshLeads();
+      refreshSystemMetrics();
+      break;
+    case "lead_created":
+      refreshLeads();
+      break;
+    case "docuseal_update":
+      refreshLeads();
+      break;
+    default:
+      break;
+  }
+}
+
+// ==============================================================================
+// 5. VISTA EN VIVO
+// ==============================================================================
+
 let callDurationTimer = null;
 let currentDurationSecs = 0;
-let isCallActive = true;
+let isCallActive = false;
+let isSofiaSpeaking = false;
+let isAudioMuted = false;
 
-function loadLiveCallInitialStream() {
-  const container = document.getElementById("liveChatStream");
-  container.innerHTML = "";
-  for (let i = 0; i < 4; i++) {
-    appendStreamTurn(LIVE_CALL_SCRIPT[i]);
-  }
-  streamIndex = 4;
+function startDurationTimer() {
+  stopDurationTimer();
+  currentDurationSecs = 0;
+  setText("liveDurationTimer", "00:00");
+  callDurationTimer = setInterval(() => {
+    currentDurationSecs++;
+    const m = String(Math.floor(currentDurationSecs / 60)).padStart(2, "0");
+    const s = String(currentDurationSecs % 60).padStart(2, "0");
+    setText("liveDurationTimer", `${m}:${s}`);
+  }, 1000);
 }
 
-function escapeHtml(str) {
-  if (str === null || str === undefined) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+function stopDurationTimer() {
+  if (callDurationTimer) clearInterval(callDurationTimer);
+  callDurationTimer = null;
+}
+
+function setActiveCallBadge(active) {
+  const badge = $("liveCallBadge");
+  if (badge) {
+    badge.textContent = active ? "1 ACTIVA" : "0 ACTIVAS";
+    badge.classList.toggle("live", active);
+  }
+  const status = $("liveCallStatusBadge");
+  if (status) {
+    status.textContent = active ? "EN LLAMADA" : "SIN LLAMADA";
+    status.classList.toggle("idle", !active);
+  }
+}
+
+function clearStream(placeholder) {
+  const container = $("liveChatStream");
+  container.textContent = "";
+  if (placeholder) {
+    container.appendChild(createEmptyStateElement("🎧", placeholder.title, placeholder.desc));
+  }
+}
+
+function resetLeadCard() {
+  ["extLeadName", "extLeadPhone", "extLeadDate", "extLeadInterest", "extLeadStatus"].forEach(id => setText(id, "—"));
+  setText("extLeadSummary", "El lead se extrae automáticamente al terminar la llamada.");
+  $("extLeadTags").textContent = "";
+}
+
+function resetLiveCallView() {
+  isCallActive = false;
+  stopDurationTimer();
+  setActiveCallBadge(false);
+  setText("liveCallerName", "Sin llamada activa");
+  setText("liveCallerNumber", "");
+  setText("liveCallerAvatar", "—");
+  setText("liveRoomName", "—");
+  setText("liveDurationTimer", "00:00");
+  setText("typingText", "Esperando llamada entrante…");
+  setText("n8nSyncTag", "En espera");
+  clearStream({ title: "Esperando llamada", desc: "La transcripción aparecerá aquí en tiempo real cuando Sofía atienda una llamada." });
+  resetLeadCard();
+}
+
+function startRealCallView(event) {
+  switchTab("envivo");
+  isCallActive = true;
+  setActiveCallBadge(true);
+  setText("liveCallerName", "Llamada entrante");
+  setText("liveCallerAvatar", "☎");
+  setText("liveRoomName", event.room || "—");
+  setText("typingText", "Sofía atendiendo la llamada…");
+  setText("n8nSyncTag", "Llamada en curso");
+  clearStream(null);
+  resetLeadCard();
+  startDurationTimer();
+}
+
+function endRealCallView(event) {
+  isCallActive = false;
+  stopDurationTimer();
+  setActiveCallBadge(false);
+  if (event.duration) setText("liveDurationTimer", event.duration);
+  setText("typingText", "Llamada finalizada · lead procesado");
+  if (event.lead) updateExtractedLeadCard(event.lead);
+  setText("n8nSyncTag", event.lead ? "Lead registrado" : "Sin lead");
 }
 
 function appendStreamTurn(turn) {
-  const container = document.getElementById("liveChatStream");
+  const container = $("liveChatStream");
+  const empty = container.querySelector(".panel-empty-state");
+  if (empty) empty.remove();
+
   const bubble = document.createElement("div");
   bubble.className = `stream-bubble ${turn.role === "agent" ? "agent" : "customer"}`;
 
   const metaDiv = document.createElement("div");
   metaDiv.className = "bubble-meta";
-
   const authorSpan = document.createElement("span");
   authorSpan.textContent = turn.author || "";
-
   const timeSpan = document.createElement("span");
   timeSpan.className = "bubble-time";
   timeSpan.textContent = turn.time || "";
-
   metaDiv.appendChild(authorSpan);
   metaDiv.appendChild(timeSpan);
 
   const textDiv = document.createElement("div");
+  textDiv.className = "bubble-text";
   textDiv.textContent = turn.text || "";
 
   bubble.appendChild(metaDiv);
   bubble.appendChild(textDiv);
-
   container.appendChild(bubble);
   container.scrollTop = container.scrollHeight;
 }
 
-// Simulador de onda de audio en Canvas (Waveform)
+function updateExtractedLeadCard(lead) {
+  setText("extLeadName", lead.nombre || "No indicado");
+  setText("extLeadPhone", lead.telefono || "No indicado");
+  setText("extLeadInterest", lead.motivo || "—");
+  setText("extLeadDate", lead.fecha_evento || "A convenir");
+  setText("extLeadSummary", lead.detalles || "");
+  setText("extLeadStatus", lead.docuseal_status ? `Registrado · contrato ${lead.docuseal_status}` : "Registrado");
+  const tags = $("extLeadTags");
+  tags.textContent = "";
+  (Array.isArray(lead.requerimientos_tecnicos) ? lead.requerimientos_tecnicos : []).forEach(r => {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = r;
+    tags.appendChild(tag);
+  });
+  if (lead.nombre) {
+    setText("liveCallerName", lead.nombre);
+    setText("liveCallerAvatar", lead.nombre.split(/\s+/).map(p => p[0]).join("").slice(0, 2).toUpperCase());
+  }
+  if (lead.telefono) setText("liveCallerNumber", lead.telefono);
+}
+
 function initLiveVisualizer() {
-  const canvas = document.getElementById("waveformCanvas");
+  const canvas = $("waveformCanvas");
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let step = 0;
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const bars = 22;
-    const barWidth = 4;
-    const gap = 3;
-
-    for (let i = 0; i < bars; i++) {
-      let height = 4;
-      if (isSofiaSpeaking) {
-        // Onda viva enérgica con armonías orgánicas
-        height = Math.abs(Math.sin(step + i * 0.45)) * 26 + Math.cos(step * 0.8 + i) * 6 + 4;
-      } else if (isCallActive) {
-        // Latido suave en reposo
-        height = Math.abs(Math.sin(step * 0.5 + i * 0.3)) * 6 + 3;
-      }
-
-      const x = i * (barWidth + gap) + 6;
-      const y = (canvas.height - height) / 2;
-
-      ctx.fillStyle = i % 2 === 0 ? "#d4af37" : "#10b981";
-      ctx.fillRect(x, y, barWidth, height);
+    for (let i = 0; i < 22; i++) {
+      let height = 3;
+      if (isSofiaSpeaking) height = Math.abs(Math.sin(step + i * 0.45)) * 24 + 4;
+      else if (isCallActive) height = Math.abs(Math.sin(step * 0.5 + i * 0.3)) * 6 + 3;
+      ctx.fillStyle = i % 2 === 0 ? "#0071e3" : "#34c759";
+      ctx.fillRect(i * 7 + 4, (canvas.height - height) / 2, 4, height);
     }
-
     step += isSofiaSpeaking ? 0.18 : 0.06;
-    requestAnimationFrame(draw);
+    if (!reduceMotion) requestAnimationFrame(draw);
   }
   draw();
 }
 
+// ---------------- Simulación local (solo modo demo) ----------------
+
+const LIVE_CALL_SCRIPT = [
+  { role: "agent", author: "Sofía (IA WELUX)", time: "00:03", text: "¡Hola! Gracias por llamar a WELUX en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?" },
+  { role: "customer", author: "Jean-Luc Weber", time: "00:15", text: "Hola Sofía. Me llamo Jean-Luc Weber, de una consultora en Kirchberg. Queremos organizar nuestra gala de fin de año el 18 de noviembre para unas 150 personas." },
+  { role: "agent", author: "Sofía (IA WELUX)", time: "00:30", text: "¡Qué buen evento, Jean-Luc! Contamos con iluminación, audio profesional y DJ para galas corporativas. ¿Ya tienen el salón reservado?" },
+  { role: "customer", author: "Jean-Luc Weber", time: "00:48", text: "Sí, en Kirchberg. Necesitaremos también micrófonos inalámbricos para los discursos." },
+  { role: "agent", author: "Sofía (IA WELUX)", time: "01:05", text: "Tomo nota de todo. El equipo preparará la propuesta personalizada y te la enviará hoy mismo. ¿Algún otro detalle?" },
+  { role: "customer", author: "Jean-Luc Weber", time: "01:22", text: "No, con eso es suficiente. ¡Muchas gracias!" },
+  { role: "agent", author: "Sofía (IA WELUX)", time: "01:30", text: "Un placer, Jean-Luc. ¡Que tengas un excelente día!" },
+];
+
+const DEMO_LEAD = {
+  nombre: "Jean-Luc Weber",
+  telefono: "+352 691 000 100",
+  motivo: "Gala corporativa de fin de año (150 personas)",
+  fecha_evento: "18 Nov 2026",
+  detalles: "Producción técnica completa para salón en Kirchberg; requiere micrófonos para discursos.",
+  requerimientos_tecnicos: ["Iluminación", "Sonido", "Micrófonos inalámbricos", "DJ"],
+};
+
+let streamIndex = 0;
+
+function loadDemoLiveCall() {
+  stopDurationTimer();
+  clearStream(null);
+  LIVE_CALL_SCRIPT.slice(0, 4).forEach(appendStreamTurn);
+  streamIndex = 4;
+  isCallActive = true;
+  setActiveCallBadge(true);
+  setText("liveCallerName", "Jean-Luc Weber (ejemplo)");
+  setText("liveCallerNumber", "+352 691 000 100");
+  setText("liveCallerAvatar", "JW");
+  setText("liveRoomName", "demo-local");
+  setText("liveDurationTimer", "00:48");
+  setText("typingText", "Simulación local · no hay llamada real");
+  setText("n8nSyncTag", "Demo");
+  updateExtractedLeadCard(DEMO_LEAD);
+  setText("extLeadStatus", "Ejemplo (modo demo)");
+}
+
+function triggerIncomingCallDemo() {
+  if (isLive()) return;
+  switchTab("envivo");
+  clearStream(null);
+  streamIndex = 0;
+  isCallActive = true;
+  setActiveCallBadge(true);
+  resetLeadCard();
+  startDurationTimer();
+  playNextDemoTurn();
+}
+
+function playNextDemoTurn() {
+  if (streamIndex >= LIVE_CALL_SCRIPT.length) {
+    updateExtractedLeadCard(DEMO_LEAD);
+    setText("extLeadStatus", "Ejemplo (modo demo)");
+    setText("typingText", "Simulación finalizada · puedes colgar.");
+    return;
+  }
+  const turn = LIVE_CALL_SCRIPT[streamIndex++];
+  appendStreamTurn(turn);
+  if (turn.role === "agent") speakSofia(turn.text, () => setTimeout(playNextDemoTurn, 800));
+  else setTimeout(playNextDemoTurn, 1200);
+}
+
+function getBestSpanishVoice() {
+  if (!("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  return voices.find(v => v.lang.startsWith("es") && /Google|Monica|Paulina|Helena|Natural|Jorge/.test(v.name))
+    || voices.find(v => v.lang.startsWith("es")) || null;
+}
+
+function speakSofia(text, onEnd) {
+  if (isAudioMuted || !("speechSynthesis" in window)) {
+    if (onEnd) setTimeout(onEnd, 1200);
+    return;
+  }
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = "es-ES";
+  utter.rate = 1.05;
+  const voice = getBestSpanishVoice();
+  if (voice) utter.voice = voice;
+  isSofiaSpeaking = true;
+  setText("typingText", "Sofía hablando (voz del navegador, simulación)…");
+  const done = () => {
+    isSofiaSpeaking = false;
+    setText("typingText", "Simulación local · escuchando…");
+    if (onEnd) setTimeout(onEnd, 300);
+  };
+  utter.onend = done;
+  utter.onerror = done;
+  window.speechSynthesis.speak(utter);
+}
+
 function toggleAudioMute() {
   isAudioMuted = !isAudioMuted;
-  if (isAudioMuted && 'speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-  }
-  document.getElementById("muteLabel").innerText = isAudioMuted ? "Activar Voz" : "Silenciar Voz";
+  if (isAudioMuted && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  setText("muteLabel", isAudioMuted ? "Activar Voz" : "Silenciar Voz");
 }
 
 function hangupActiveCall() {
+  if (isLive()) return;
   isCallActive = false;
   isSofiaSpeaking = false;
-  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-  if (callDurationTimer) clearInterval(callDurationTimer);
-
-  document.getElementById("typingText").innerText = "Llamada finalizada · Lead extraído y enviado a n8n";
-  document.getElementById("liveCallBadge").innerText = "0 ACTIVAS";
-  document.getElementById("liveCallBadge").classList.remove("live");
-
-  // Registrar llamada en el historial persistente
-  const completedCall = {
-    id: `call-${Date.now().toString().slice(-4)}`,
-    date: "Hoy, " + new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
-    client: document.getElementById("extLeadName").innerText || "Cliente Web",
-    phone: document.getElementById("extLeadPhone").innerText || "+352 691 452 890",
-    duration: document.getElementById("liveDurationTimer").innerText,
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  stopDurationTimer();
+  setActiveCallBadge(false);
+  setText("typingText", "Simulación finalizada (no se ha enviado nada a ningún sistema).");
+  provider.saveCall({
+    id: `demo-call-${Date.now()}`,
+    date: "Hoy, " + new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
+    client: $("extLeadName").textContent || "Cliente de ejemplo",
+    phone: $("extLeadPhone").textContent || "—",
+    duration: $("liveDurationTimer").textContent,
     operator: "Sofía (IA)",
-    reason: document.getElementById("extLeadInterest").innerText,
+    reason: $("extLeadInterest").textContent,
     hasLead: true,
-    transcript: Array.from(document.querySelectorAll(".stream-bubble")).map(b => b.innerText).join("\n\n")
-  };
-  dataProvider.saveNewCall(completedCall);
-  renderCallsTable();
-
-  alert("Llamada finalizada con éxito. Transcripción y lead archivados en el monitor del cliente.");
+    isToday: true,
+    transcript: Array.from(document.querySelectorAll(".stream-bubble")).map(b => b.innerText).join("\n"),
+  }).then(() => renderCallsTable());
 }
 
 function copyLiveTranscript() {
-  const bubbles = document.querySelectorAll(".stream-bubble");
-  const text = Array.from(bubbles).map(b => b.innerText).join("\n\n");
-  navigator.clipboard.writeText(text).then(() => {
-    alert("Transcripción copiada al portapapeles.");
-  });
+  const text = Array.from(document.querySelectorAll(".stream-bubble")).map(b => b.innerText).join("\n\n");
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => setText("typingText", "Transcripción copiada al portapapeles."));
+}
+
+function openWhatsAppForPhone(phone, message) {
+  const clean = digitsOnly(phone);
+  if (clean.length < 6) {
+    window.alert("Este lead no tiene un teléfono válido.");
+    return;
+  }
+  const text = encodeURIComponent(message || "Hola, te contactamos de WELUX sobre tu solicitud.");
+  window.open(`https://wa.me/${clean}?text=${text}`, "_blank", "noopener,noreferrer");
 }
 
 function contactViaWhatsApp() {
-  const phone = document.getElementById("extLeadPhone").innerText.replace(/[^0-9]/g, "");
-  const name = document.getElementById("extLeadName").innerText;
-  const msg = encodeURIComponent(`Hola ${name}, te contacto de WELUX Events sobre tu solicitud de cotización técnica.`);
-  window.open(`https://wa.me/${phone || '352691452890'}?text=${msg}`, "_blank");
+  const name = $("extLeadName").textContent;
+  openWhatsAppForPhone($("extLeadPhone").textContent, `Hola ${name}, te contacto de WELUX sobre tu solicitud.`);
 }
 
 function scheduleDirectMeeting() {
   switchTab("agenda");
 }
 
-// ==============================================================================
-// 5. SIMULACIÓN DE LLAMADA FLUIDA (DEMO DE 990 €)
-// ==============================================================================
-
-function triggerIncomingCallDemo() {
-  switchTab("envivo");
-  const container = document.getElementById("liveChatStream");
-  container.innerHTML = "";
-  streamIndex = 0;
-  isCallActive = true;
-
-  document.getElementById("liveCallBadge").innerText = "1 ACTIVA";
-  document.getElementById("liveCallBadge").classList.add("live");
-  document.getElementById("liveDurationTimer").innerText = "00:00";
-  currentDurationSecs = 0;
-
-  if (callDurationTimer) clearInterval(callDurationTimer);
-  callDurationTimer = setInterval(() => {
-    currentDurationSecs++;
-    const m = String(Math.floor(currentDurationSecs / 60)).padStart(2, '0');
-    const s = String(currentDurationSecs % 60).padStart(2, '0');
-    document.getElementById("liveDurationTimer").innerText = `${m}:${s}`;
-  }, 1000);
-
-  playNextDemoTurn();
-}
-
-function playNextDemoTurn() {
-  if (streamIndex >= LIVE_CALL_SCRIPT.length) {
-    document.getElementById("typingText").innerText = "Conversación finalizada · Puedes colgar o agendar.";
-    return;
-  }
-
-  const turn = LIVE_CALL_SCRIPT[streamIndex];
-  appendStreamTurn(turn);
-  streamIndex++;
-
-  if (turn.role === "agent") {
-    // Sofía habla de forma natural; el siguiente turno espera que termine
-    speakSofia(turn.text, () => {
-      // Breve pausa para la respuesta del cliente
-      setTimeout(playNextDemoTurn, 1000);
-    });
-  } else {
-    // El cliente habla; pausa orgánica antes de la respuesta de Sofía
-    setTimeout(playNextDemoTurn, 1400);
-  }
-}
-
-// ==============================================================================
-// 6. PRUEBA DE VOZ INTERACTIVA (MICRÓFONO Y TEXTO EN VIVO)
-// ==============================================================================
-
+// Entrada de texto / micrófono: prueba local del guion (solo demo, sin IA real)
 let speechRecognizer = null;
 let isRecording = false;
 
 function toggleVoiceInputTest() {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRec) {
-    alert("Tu navegador no soporta reconocimiento de voz nativo. Puedes escribir tu frase en el campo de texto.");
+    window.alert("Tu navegador no soporta reconocimiento de voz. Escribe la frase en el campo de texto.");
     return;
   }
-
   if (isRecording) {
-    stopVoiceRecognition();
+    speechRecognizer.stop();
     return;
   }
-
-  startVoiceRecognition();
-}
-
-function startVoiceRecognition() {
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   speechRecognizer = new SpeechRec();
   speechRecognizer.lang = "es-ES";
-  speechRecognizer.continuous = false;
   speechRecognizer.interimResults = false;
-
-  const btn = document.getElementById("btnLiveMic");
-  const label = document.getElementById("micBtnLabel");
-
   speechRecognizer.onstart = () => {
     isRecording = true;
-    if (btn) btn.classList.add("recording");
-    if (label) label.innerText = "Escuchando...";
-    document.getElementById("typingText").innerText = "🎙️ Escuchando tu voz... Habla ahora.";
+    $("btnLiveMic").classList.add("recording");
+    setText("micBtnLabel", "Escuchando…");
   };
-
   speechRecognizer.onresult = (event) => {
-    const text = event.results[0][0].transcript;
-    document.getElementById("liveUserTextInput").value = text;
+    $("liveUserTextInput").value = event.results[0][0].transcript;
     sendLiveUserText();
   };
-
-  speechRecognizer.onerror = (event) => {
-    console.warn("Speech recognition error:", event.error);
-    stopVoiceRecognition();
+  speechRecognizer.onend = speechRecognizer.onerror = () => {
+    isRecording = false;
+    $("btnLiveMic").classList.remove("recording");
+    setText("micBtnLabel", "Hablar");
   };
-
-  speechRecognizer.onend = () => {
-    stopVoiceRecognition();
-  };
-
   speechRecognizer.start();
 }
 
-function stopVoiceRecognition() {
-  isRecording = false;
-  const btn = document.getElementById("btnLiveMic");
-  const label = document.getElementById("micBtnLabel");
-  if (btn) btn.classList.remove("recording");
-  if (label) label.innerText = "Hablar";
-}
+const DEMO_INTENTS = [
+  { keys: ["fotoespejo", "photobooth", "espejo"], reply: "¡El fotoespejo es ideal para activaciones de marca! ¿Para qué fecha lo necesitas y cuántos asistentes calculan?", interest: "Alquiler Fotoespejo (Photobooth)", reqs: ["Fotoespejo", "Impresión instantánea"] },
+  { keys: ["asesor", "consultor", "proceso", "negocio"], reply: "Ayudamos a empresas a optimizar procesos comerciales. ¿Te vendría bien una sesión de diagnóstico de 30 minutos?", interest: "Asesoría de Negocios y Procesos", reqs: ["Diagnóstico", "Automatización comercial"] },
+  { keys: ["web", "crm", "chatbot", "newsletter", "mailing"], reply: "Diseñamos webs profesionales, chatbots con IA y despliegue de CRM. ¿Para cuándo lo necesitarían operativo?", interest: "Servicios B2B (Web, Chatbot & CRM)", reqs: ["Desarrollo web", "Chatbot IA", "CRM"] },
+  { keys: ["minigolf", "billar", "inflable"], reply: "Los inflables de minigolf y billar gigante son un éxito en empresas. ¿Sería con entrega y montaje en vuestra sede?", interest: "Alquiler Inflables (Minigolf & Billar)", reqs: ["Inflables", "Montaje"] },
+  { keys: ["gala", "empresa", "corporativ", "evento"], reply: "Para galas corporativas disponemos de sonido, iluminación y micrófonos. ¿Para qué fecha y qué salón?", interest: "Evento corporativo", reqs: ["Sonido", "Iluminación", "Micrófonos"] },
+  { keys: ["precio", "cuanto", "cuánto", "tarifa", "costo", "cotiz"], reply: "Cada solución se adapta a tu empresa: preparamos una propuesta detallada. ¿Me indicas un teléfono de contacto?", interest: "Cotización formal requerida", reqs: [] },
+];
 
 function sendLiveUserText() {
-  const input = document.getElementById("liveUserTextInput");
+  if (isLive()) return;
+  const input = $("liveUserTextInput");
   const text = input.value.trim();
   if (!text) return;
-
   input.value = "";
-  stopVoiceRecognition();
+  appendStreamTurn({ role: "customer", author: "Tú (prueba)", time: nowTimeLabel(), text });
 
-  // Agregar turno del cliente
-  const now = new Date();
-  const timeStr = `${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-  
-  appendStreamTurn({
-    role: "customer",
-    author: "Tú (Cliente)",
-    time: timeStr,
-    text: text
-  });
-
-  // Generar respuesta oral fluida de Sofía
-  generateSofiaResponse(text);
-}
-
-function quickSendChip(phrase) {
-  document.getElementById("liveUserTextInput").value = phrase;
-  sendLiveUserText();
-}
-
-function generateSofiaResponse(userText) {
-  const lower = userText.toLowerCase();
-  let sofiaReply = "";
-  let extracted = {};
-
-  if (lower.includes("fotoespejo") || lower.includes("photobooth") || lower.includes("espejo")) {
-    sofiaReply = "¡El fotoespejo interactivo es sensacional para activaciones de marca y eventos! Incluye impresiones ilimitadas al instante, diseño personalizado con el logo de tu empresa y atrezo. ¿Para qué fecha lo necesitas y cuántos asistentes calculan?";
-    extracted = { interest: "Alquiler Fotoespejo (Photobooth)", reqs: ["Fotoespejo Interactivo", "Impresión Instantánea", "Plantilla con Logo"], guests: "120 aprox." };
-  } else if (lower.includes("asesor") || lower.includes("consultor") || lower.includes("proceso") || lower.includes("negocio")) {
-    sofiaReply = "¡Excelente iniciativa! Nuestro equipo de consultoría ayuda a empresas en Luxemburgo a optimizar procesos comerciales y automatizar la atención al cliente 24/7. ¿Te vendría bien agendar una sesión de diagnóstico de 30 minutos?";
-    extracted = { interest: "Asesoría de Negocios y Procesos", reqs: ["Diagnóstico Operativo", "Automatización Comercial", "Consultoría Estratégica"] };
-  } else if (lower.includes("web") || lower.includes("crm") || lower.includes("chatbot") || lower.includes("newsletter") || lower.includes("mailing")) {
-    sofiaReply = "¡Magnífico proyecto digital! Diseñamos sitios web profesionales, chatbots conversacionales con IA y desplegamos el CRM Twenty para centralizar tus ventas. ¿Para qué fecha les gustaría tenerlo operativo?";
-    extracted = { interest: "Servicios B2B (Web, Chatbot & CRM)", reqs: ["Desarrollo Web", "Chatbot IA", "Configuración CRM Twenty"] };
-  } else if (lower.includes("minigolf") || lower.includes("billar") || lower.includes("inflable")) {
-    sofiaReply = "¡Fantástica idea para dinamizar la jornada! Nuestros juegos inflables interactivos como el minigolf o billar gigante son un éxito en empresas. ¿Sería con entrega y montaje completo en tu sede?";
-    extracted = { interest: "Alquiler Inflables (Minigolf & Billar)", reqs: ["Minigolf Inflable", "Billar Gigante", "Montaje y Logística"] };
-  } else if (lower.includes("gala") || lower.includes("empresa") || lower.includes("corporativ")) {
-    sofiaReply = "¡Por supuesto! Para galas corporativas disponemos de sonido line-array de alta fidelidad, iluminación perimetral y micrófonos para directivos. ¿Para qué fecha y qué salón lo tienen planificado?";
-    extracted = { interest: "Gala corporativa", guests: "150 aprox.", reqs: ["Sonido Line Array", "Iluminación Arquitectónica", "Micrófonos Inalámbricos"] };
-  } else if (lower.includes("boda") || lower.includes("casamiento") || lower.includes("septfontaines")) {
-    sofiaReply = "¡Enhorabuena por la boda! En recintos como Septfontaines instalamos microfonía para la ceremonia, iluminación cálida de hadas y cabina de DJ. ¿Tienes fecha aproximada o ya reservaste el château?";
-    extracted = { interest: "Boda de lujo", reqs: ["Luces de Hadas", "Audio Ceremonia", "DJ Set"], date: "Primavera / Verano 2027" };
-  } else if (lower.includes("precio") || lower.includes("cuanto") || lower.includes("tarifa") || lower.includes("costo") || lower.includes("cotiz")) {
-    sofiaReply = "Con mucho gusto te informo. Como cada solución se adapta a la medida de tu empresa o evento, prepararemos una propuesta detallada en menos de 24 horas. ¿Me podrías indicar un número de teléfono de contacto?";
-    extracted = { interest: "Cotización formal requerida" };
-  } else {
-    sofiaReply = "¡Entendido perfectamente! Tomo nota de los detalles para que nuestro asesor asignado se comunique hoy mismo con la propuesta comercial. ¿Hay algún detalle específico adicional?";
-    extracted = { interest: "Consulta general de servicios B2B" };
-  }
-
-  // Actualizar lead en vivo
-  updateLiveLeadDynamically(userText, extracted);
-
-  // Sofía responde por voz natural
-  const now = new Date();
-  const timeStr = `${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-  
-  setTimeout(() => {
-    appendStreamTurn({
-      role: "agent",
-      author: "Sofía (IA WELUX)",
-      time: timeStr,
-      text: sofiaReply
-    });
-    speakSofia(sofiaReply);
-  }, 400);
-}
-
-function updateLiveLeadDynamically(userInput, data) {
-  if (data.interest) document.getElementById("extLeadInterest").innerText = data.interest;
-  if (data.date) document.getElementById("extLeadDate").innerText = data.date;
-
-  // Extraer teléfono si está en el texto
-  const phoneMatch = userInput.match(/(?:\+352|00352)?[0-9\s]{8,12}/);
-  if (phoneMatch) {
-    document.getElementById("extLeadPhone").innerText = phoneMatch[0].trim();
-  }
-
-  // Extraer nombre si dice "me llamo" o "soy"
-  const nameMatch = userInput.match(/(?:me llamo|soy|mi nombre es)\s+([A-Za-zÀ-ÿ\s]+)/i);
-  if (nameMatch) {
-    document.getElementById("extLeadName").innerText = nameMatch[1].trim();
-  }
-
-  if (data.reqs) {
-    const container = document.getElementById("extLeadTags");
-    container.innerHTML = "";
-    data.reqs.forEach(r => {
+  const lower = text.toLowerCase();
+  const intent = DEMO_INTENTS.find(i => i.keys.some(k => lower.includes(k)));
+  const reply = intent ? intent.reply : "Tomo nota para que el asesor asignado te contacte hoy mismo. ¿Algún detalle adicional?";
+  if (intent) {
+    setText("extLeadInterest", intent.interest);
+    const tags = $("extLeadTags");
+    tags.textContent = "";
+    intent.reqs.forEach(r => {
       const tag = document.createElement("span");
       tag.className = "tag";
       tag.textContent = r;
-      container.appendChild(tag);
+      tags.appendChild(tag);
     });
   }
+  const phoneMatch = text.match(/(?:\+|00)?\d[\d\s]{7,16}\d/);
+  if (phoneMatch) setText("extLeadPhone", phoneMatch[0].trim());
+  const nameMatch = text.match(/(?:me llamo|mi nombre es)\s+([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+)?)/i);
+  if (nameMatch) setText("extLeadName", nameMatch[1].trim());
+
+  setTimeout(() => {
+    appendStreamTurn({ role: "agent", author: "Sofía (respuesta de ejemplo)", time: nowTimeLabel(), text: reply });
+    speakSofia(reply);
+  }, 400);
 }
 
-function updateExtractedLeadCard(lead) {
-  if (lead.nombre) document.getElementById("extLeadName").innerText = lead.nombre;
-  if (lead.telefono) document.getElementById("extLeadPhone").innerText = lead.telefono;
-  if (lead.motivo) document.getElementById("extLeadInterest").innerText = lead.motivo;
-  if (lead.fecha_evento || lead.fecha_interes) {
-    document.getElementById("extLeadDate").innerText = lead.fecha_evento || lead.fecha_interes;
-  }
-  if (lead.detalles) document.getElementById("extLeadSummary").innerText = lead.detalles;
+function quickSendChip(phrase) {
+  $("liveUserTextInput").value = phrase;
+  sendLiveUserText();
 }
 
 // ==============================================================================
-// 7. CONTROLADOR DE VISTAS Y NAVEGACIÓN
+// 6. NAVEGACIÓN
 // ==============================================================================
 
 const VIEW_TITLES = {
-  envivo: {
-    title: "Monitor de Llamada en Vivo",
-    subtitle: "Supervisión en tiempo real del diálogo, audio streaming y extracción automática de lead."
-  },
-  llamadas: {
-    title: "Historial de Llamadas Telefónicas",
-    subtitle: "Registro auditable de todas las llamadas entrantes con transcripción completa y descargable."
-  },
-  leads: {
-    title: "Bandeja de Leads Extraídos",
-    subtitle: "Contactos comerciales calificados por la IA con sincronización directa hacia n8n y CRM."
-  },
-  agenda: {
-    title: "Agenda de Citas & Reuniones",
-    subtitle: "Calendario de citas concertadas de forma autónoma por Sofía durante las llamadas."
-  },
-  estado: {
-    title: "Estado del Sistema & Infraestructura",
-    subtitle: "Healthcheck continuo de LiveKit Cloud, Deepgram Nova-3, DeepSeek, Piper TTS y n8n."
-  }
+  envivo: { title: "Monitor de Llamada en Vivo", subtitle: "Transcripción en tiempo real y lead extraído al colgar." },
+  llamadas: { title: "Historial de Llamadas", subtitle: "Llamadas atendidas con transcripción descargable." },
+  leads: { title: "Bandeja de Leads", subtitle: "Contactos comerciales registrados en Google Sheets." },
+  agenda: { title: "Agenda & Solicitudes de Cita", subtitle: "Solicitudes registradas por Sofía, pendientes de confirmación por el equipo." },
+  estado: { title: "Estado del Sistema", subtitle: "Configuración real del pipeline y métricas de la sesión del servidor." },
 };
 
-document.addEventListener("DOMContentLoaded", () => {
-  initNavigation();
-  initLiveVisualizer();
-  loadLiveCallInitialStream();
-  renderCallsTable();
-  renderLeadsGrid();
-  renderCalendar();
-  renderAppointments();
-  initBackendWebSocket();
-  checkSavedClientIdentity();
-  startLiveLeadsSync();
-
-  const now = new Date();
-  const options = { day: 'numeric', month: 'short', year: 'numeric' };
-  document.getElementById("currentDateDisplay").innerText = now.toLocaleDateString('es-ES', options);
-});
-
-function checkSavedClientIdentity() {
-  try {
-    const raw = localStorage.getItem("welux_current_client");
-    if (raw) {
-      const data = jsonParseSafe(raw);
-      if (data && data.nombre) {
-        updateClientIdentifiedUI(data);
-      }
-    }
-  } catch (err) {
-    console.warn("Error leyendo cliente guardado:", err);
-  }
-}
-
-async function handleClientIdentification(e) {
-  if (e) e.preventDefault();
-  const nameInput = document.getElementById("clientIdName");
-  const phoneInput = document.getElementById("clientIdPhone");
-  const compInput = document.getElementById("clientIdCompany");
-
-  const name = nameInput ? nameInput.value.trim() : "";
-  const phone = phoneInput ? phoneInput.value.trim() : "";
-  const company = compInput ? compInput.value.trim() : "Particular";
-
-  if (!name || !phone) {
-    alert("Por favor completa al menos tu nombre y número de teléfono.");
-    return;
-  }
-
-  const clientPayload = {
-    nombre: name,
-    telefono: phone,
-    empresa: company || "Particular",
-    motivo: "Identificación de cliente en portal web",
-    detalles: `Cliente registrado en La Centralita: ${name}, teléfono ${phone}`
-  };
-
-  try {
-    const res = await fetch("/api/client-identify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(clientPayload)
-    });
-    if (res.ok) {
-      localStorage.setItem("welux_current_client", JSON.stringify(clientPayload));
-      updateClientIdentifiedUI(clientPayload);
-      const liveName = document.getElementById("liveCallerName");
-      const liveNum = document.getElementById("liveCallerNumber");
-      if (liveName) liveName.innerText = name;
-      if (liveNum) liveNum.innerText = `${phone} (${company})`;
-      cachedLeads = await dataProvider.getLeads();
-      renderLeadsGrid();
-      alert(`✓ ¡Gracias ${name}! Tus datos quedaron registrados y sincronizados con Google Sheets.`);
-    }
-  } catch (err) {
-    console.warn("Fallo conectando a /api/client-identify:", err);
-    localStorage.setItem("welux_current_client", JSON.stringify(clientPayload));
-    updateClientIdentifiedUI(clientPayload);
-  }
-}
-
-function updateClientIdentifiedUI(data) {
-  const form = document.getElementById("clientIdentificationForm");
-  const badge = document.getElementById("clientIdentifiedBadge");
-  const text = document.getElementById("clientIdentifiedText");
-  if (form && badge) {
-    form.style.display = "none";
-    badge.style.display = "inline-flex";
-    if (text) {
-      text.innerText = `${data.nombre} (${data.telefono})`;
-    }
-  }
-}
-
-function startLiveLeadsSync() {
-  // Polling automático cada 15 segundos hacia Google Sheets a través de /api/leads
-  setInterval(async () => {
-    try {
-      const freshLeads = await dataProvider.getLeads();
-      if (!Array.isArray(freshLeads)) return;
-      const prevIds = cachedLeads.map(l => l.id + ":" + l.stage).join(",");
-      const freshIds = freshLeads.map(l => l.id + ":" + l.stage).join(",");
-      if (prevIds !== freshIds) {
-        console.info("[LiveSync] Se detectaron cambios en Google Sheets, actualizando interfaz...");
-        cachedLeads = freshLeads;
-        renderLeadsGrid();
-        renderTwentyKanban();
-      }
-    } catch (err) {
-      console.warn("[LiveSync] Error en polling:", err);
-    }
-  }, 15000);
-}
-
-function initNavigation() {
-  const navItems = document.querySelectorAll(".nav-item");
-  navItems.forEach(item => {
-    item.addEventListener("click", (e) => {
-      e.preventDefault();
-      const tab = item.getAttribute("data-tab");
-      switchTab(tab);
-    });
-  });
-
-  const hash = window.location.hash.replace("#", "");
-  if (hash && VIEW_TITLES[hash]) {
-    switchTab(hash);
-  }
-}
-
 function switchTab(tabId) {
+  if (!VIEW_TITLES[tabId]) return;
   document.querySelectorAll(".nav-item").forEach(el => {
-    el.classList.toggle("active", el.getAttribute("data-tab") === tabId);
+    const active = el.getAttribute("data-tab") === tabId;
+    el.classList.toggle("active", active);
+    if (active) el.setAttribute("aria-current", "page");
+    else el.removeAttribute("aria-current");
   });
-
   document.querySelectorAll(".view-panel").forEach(panel => {
     panel.classList.toggle("active", panel.id === `view-${tabId}`);
   });
-
-  if (VIEW_TITLES[tabId]) {
-    document.getElementById("currentViewTitle").innerText = VIEW_TITLES[tabId].title;
-    document.getElementById("currentViewSubtitle").innerText = VIEW_TITLES[tabId].subtitle;
-  }
-
-  window.location.hash = tabId;
+  setText("currentViewTitle", VIEW_TITLES[tabId].title);
+  setText("currentViewSubtitle", VIEW_TITLES[tabId].subtitle);
+  if (window.location.hash !== `#${tabId}`) history.replaceState(null, "", `#${tabId}`);
 }
 
-// ==============================================================================
-// 7.B. HUD OVERLAYS & TSPARTICLES (CYBERPUNK HUD + PARTICLES)
-// ==============================================================================
-
-let hudActive = false;
-
-function toggleHudFx() {
-  hudActive = !hudActive;
-  document.body.classList.toggle("hud-mode-active", hudActive);
-  const btn = document.getElementById("btnToggleHud");
-  if (btn) {
-    btn.innerText = hudActive ? "HUD FX: ACTIVO" : "HUD FX: OFF";
-    btn.classList.toggle("btn-primary", hudActive);
-    btn.classList.toggle("btn-secondary", !hudActive);
-  }
-}
-
-function initParticlesBackground() {
-  if (typeof tsParticles === "undefined") {
-    console.info("tsParticles not loaded, skipping particle initialization.");
-    return;
-  }
-  try {
-    tsParticles.load("tsparticles", {
-      fullScreen: { enable: false, zIndex: 0 },
-      fpsLimit: 60,
-      particles: {
-        number: {
-          value: 35,
-          density: { enable: true, area: 800 }
-        },
-        color: {
-          value: ["#8b5cf6", "#d4af37", "#a78bfa"]
-        },
-        shape: { type: "circle" },
-        opacity: {
-          value: { min: 0.15, max: 0.5 },
-          animation: {
-            enable: true,
-            speed: 0.8,
-            minimumValue: 0.1,
-            sync: false
-          }
-        },
-        size: {
-          value: { min: 1, max: 2.5 }
-        },
-        move: {
-          enable: true,
-          speed: 0.6,
-          direction: "none",
-          random: true,
-          straight: false,
-          outModes: { default: "out" }
-        }
-      },
-      interactivity: {
-        events: {
-          onHover: { enable: true, mode: "bubble" }
-        },
-        modes: {
-          bubble: { distance: 100, size: 3.5, duration: 2, opacity: 0.7 }
-        }
-      },
-      detectRetina: true
+function initNavigation() {
+  document.querySelectorAll(".nav-item").forEach(item => {
+    item.addEventListener("click", (e) => {
+      e.preventDefault();
+      switchTab(item.getAttribute("data-tab"));
     });
-  } catch (err) {
-    console.warn("tsParticles init notice:", err);
-  }
+  });
+  const hash = window.location.hash.replace("#", "");
+  if (VIEW_TITLES[hash]) switchTab(hash);
 }
 
 function createEmptyStateElement(icon, title, desc) {
   const container = document.createElement("div");
   container.className = "panel-empty-state";
-  
   const iconDiv = document.createElement("div");
   iconDiv.className = "empty-icon";
   iconDiv.textContent = icon;
-  
   const titleDiv = document.createElement("div");
   titleDiv.className = "empty-title";
   titleDiv.textContent = title;
-  
   const descDiv = document.createElement("div");
   descDiv.className = "empty-desc";
   descDiv.textContent = desc;
-  
-  container.appendChild(iconDiv);
-  container.appendChild(titleDiv);
-  container.appendChild(descDiv);
+  container.append(iconDiv, titleDiv, descDiv);
   return container;
 }
 
 // ==============================================================================
-// 8. MÓDULO 2: HISTORIAL DE LLAMADAS
+// 7. IDENTIFICACIÓN DEL CLIENTE (PORTAL)
 // ==============================================================================
 
-let cachedCalls = [];
+function checkSavedClientIdentity() {
+  const data = jsonParseSafe(storageGet(sessionStorage, CLIENT_KEY));
+  if (data && data.nombre) updateClientIdentifiedUI(data);
+}
 
-async function renderCallsTable(filter = "all") {
-  cachedCalls = await dataProvider.getCallsHistory();
-  const tbody = document.getElementById("callsTableBody");
-  tbody.innerHTML = "";
+async function handleClientIdentification(e) {
+  e.preventDefault();
+  const name = $("clientIdName").value.trim();
+  const phone = $("clientIdPhone").value.trim();
+  const email = $("clientIdEmail").value.trim();
+  const company = $("clientIdCompany").value.trim();
+  const consent = $("clientIdConsent").checked;
 
-  const filtered = cachedCalls.filter(c => {
-    if (filter === "today") return c.date.includes("Hoy");
-    if (filter === "leads") return c.hasLead;
+  if (name.length < 2 || digitsOnly(phone).length < 6) {
+    window.alert("Indica tu nombre y un teléfono válido (formato internacional, p. ej. +352 691 123 456).");
+    return;
+  }
+  if (!consent) {
+    window.alert("Para registrar tus datos necesitamos tu consentimiento explícito (RGPD).");
+    return;
+  }
+  if (API_BASE === null) {
+    window.alert("Modo demo: este despliegue no tiene backend, tus datos NO se han registrado.");
+    return;
+  }
+
+  const payload = { nombre: name, telefono: phone, consentimiento: true };
+  if (email) payload.email = email;
+  if (company) payload.empresa = company;
+
+  const btn = $("btnSaveClient");
+  btn.disabled = true;
+  try {
+    const res = await apiFetch("/api/client-identify", { method: "POST", body: payload, auth: false });
+    const identity = { nombre: name, telefono: phone };
+    storageSet(sessionStorage, CLIENT_KEY, JSON.stringify(identity));
+    updateClientIdentifiedUI(identity);
+    window.alert(res.status === "ok"
+      ? `Gracias ${name}. Tus datos han quedado registrados.`
+      : `Gracias ${name}. Hemos recibido tus datos; se sincronizarán en breve.`);
+    if (isLive()) refreshLeads();
+  } catch (err) {
+    window.alert(err.status === 429
+      ? "Demasiados intentos. Inténtalo de nuevo en unos minutos."
+      : `No se pudieron registrar tus datos (${err.message}). Inténtalo de nuevo.`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function updateClientIdentifiedUI(data) {
+  $("clientIdentificationForm").hidden = true;
+  $("clientIdentifiedBadge").hidden = false;
+  setText("clientIdentifiedText", `${data.nombre} (${data.telefono})`);
+}
+
+// ==============================================================================
+// 8. HISTORIAL DE LLAMADAS
+// ==============================================================================
+
+let selectedCall = null;
+
+async function renderCallsTable() {
+  try {
+    state.calls = await provider.getCalls();
+  } catch (err) {
+    state.calls = [];
+  }
+  const tbody = $("callsTableBody");
+  tbody.textContent = "";
+
+  const filtered = state.calls.filter(c => {
+    if (state.callFilter === "today") return c.isToday || String(c.date).startsWith("Hoy");
+    if (state.callFilter === "leads") return c.hasLead;
     return true;
   });
+
+  setText("totalCallsCount", String(state.calls.length));
+  setText("callCountBadge", String(state.calls.length));
 
   if (filtered.length === 0) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
     td.colSpan = 7;
     td.className = "text-center";
-    td.appendChild(createEmptyStateElement("📡", "Sin registro de llamadas", "No se encontraron llamadas que coincidan con el filtro seleccionado."));
+    td.appendChild(createEmptyStateElement("📡", "Sin llamadas", isLive()
+      ? "Aún no hay llamadas en esta sesión del servidor."
+      : "No hay llamadas que coincidan con el filtro."));
     tr.appendChild(td);
     tbody.appendChild(tr);
-    document.getElementById("totalCallsCount").innerText = "0";
-    document.getElementById("callCountBadge").innerText = "0";
     return;
   }
 
   filtered.forEach(call => {
     const tr = document.createElement("tr");
-
-    const tdDate = document.createElement("td");
-    const strongDate = document.createElement("strong");
-    strongDate.textContent = call.date || "";
-    tdDate.appendChild(strongDate);
-
-    const tdClient = document.createElement("td");
-    const divClient = document.createElement("div");
-    const strongClient = document.createElement("strong");
-    strongClient.textContent = call.client || "";
-    divClient.appendChild(strongClient);
-    const divPhone = document.createElement("div");
-    divPhone.style.cssText = "font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted);";
-    divPhone.textContent = call.phone || "";
-    tdClient.appendChild(divClient);
-    tdClient.appendChild(divPhone);
-
-    const tdDur = document.createElement("td");
-    const spanDur = document.createElement("span");
-    spanDur.style.fontFamily = "var(--font-mono)";
-    spanDur.textContent = call.duration || "";
-    tdDur.appendChild(spanDur);
-
-    const tdOp = document.createElement("td");
-    tdOp.textContent = call.operator || "";
-
-    const tdReason = document.createElement("td");
-    tdReason.textContent = call.reason || "";
-
-    const tdLead = document.createElement("td");
-    const badge = document.createElement("span");
-    badge.className = `status-badge ${call.hasLead ? 'lead-yes' : 'lead-no'}`;
-    badge.textContent = call.hasLead ? '✓ Lead Extraído' : 'Sin Lead';
-    tdLead.appendChild(badge);
-
-    const tdBtn = document.createElement("td");
-    const btn = document.createElement("button");
-    btn.className = "btn-sm btn-outline";
-    btn.textContent = "Ver Transcripción";
-    btn.addEventListener("click", () => openTranscriptModal(call.id));
-    tdBtn.appendChild(btn);
-
-    tr.appendChild(tdDate);
-    tr.appendChild(tdClient);
-    tr.appendChild(tdDur);
-    tr.appendChild(tdOp);
-    tr.appendChild(tdReason);
-    tr.appendChild(tdLead);
-    tr.appendChild(tdBtn);
-
+    const cells = [
+      () => { const s = document.createElement("strong"); s.textContent = call.date || ""; return s; },
+      () => {
+        const wrap = document.createElement("div");
+        const strong = document.createElement("strong");
+        strong.textContent = call.client || "";
+        const phone = document.createElement("div");
+        phone.className = "cell-mono-muted";
+        phone.textContent = call.phone || "";
+        wrap.append(strong, phone);
+        return wrap;
+      },
+      () => { const s = document.createElement("span"); s.className = "mono"; s.textContent = call.duration || ""; return s; },
+      () => document.createTextNode(call.operator || ""),
+      () => document.createTextNode(call.reason || ""),
+      () => {
+        const badge = document.createElement("span");
+        badge.className = `status-badge ${call.hasLead ? "lead-yes" : "lead-no"}`;
+        badge.textContent = call.hasLead ? "✓ Lead" : "Sin lead";
+        return badge;
+      },
+      () => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn-sm btn-outline";
+        btn.textContent = "Ver transcripción";
+        btn.addEventListener("click", () => openTranscriptModal(call.id));
+        return btn;
+      },
+    ];
+    cells.forEach(build => {
+      const td = document.createElement("td");
+      td.appendChild(build());
+      tr.appendChild(td);
+    });
     tbody.appendChild(tr);
   });
-
-  document.getElementById("totalCallsCount").innerText = cachedCalls.length;
-  document.getElementById("callCountBadge").innerText = cachedCalls.length;
+  searchCallsTable();
 }
 
-function filterCalls(mode) {
-  document.querySelectorAll("#view-llamadas .filter-btn").forEach(btn => btn.classList.remove("active"));
-  event.target.classList.add("active");
-  renderCallsTable(mode);
+function filterCalls(mode, el) {
+  document.querySelectorAll("#view-llamadas .filter-btn").forEach(btn => btn.classList.toggle("active", btn === el));
+  state.callFilter = mode;
+  renderCallsTable();
 }
 
 function searchCallsTable() {
-  const query = document.getElementById("callSearchInput").value.toLowerCase();
-  const rows = document.querySelectorAll("#callsTableBody tr");
-  rows.forEach(r => {
-    const text = r.innerText.toLowerCase();
-    r.style.display = text.includes(query) ? "" : "none";
+  const query = ($("callSearchInput").value || "").toLowerCase();
+  document.querySelectorAll("#callsTableBody tr").forEach(r => {
+    r.hidden = Boolean(query) && !r.innerText.toLowerCase().includes(query);
   });
 }
 
 function exportCallsReport() {
-  let csv = "ID,Fecha,Cliente,Telefono,Duracion,Operadora,Motivo,Lead\n";
-  cachedCalls.forEach(c => {
-    csv += `"${c.id}","${c.date}","${c.client}","${c.phone}","${c.duration}","${c.operator}","${c.reason}","${c.hasLead}"\n`;
-  });
-
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `la_centralita_llamadas_${Date.now()}.csv`;
-  link.click();
+  const header = ["ID", "Fecha", "Cliente", "Telefono", "Duracion", "Operadora", "Motivo", "Lead"].map(csvCell).join(",");
+  const rows = state.calls.map(c => [c.id, c.date, c.client, c.phone, c.duration, c.operator, c.reason, c.hasLead].map(csvCell).join(","));
+  downloadBlob([header, ...rows].join("\n") + "\n", "text/csv", `la_centralita_llamadas_${Date.now()}.csv`);
 }
 
-// Modal de Transcripción
-let selectedCall = null;
+function openModal(id) {
+  const modal = $(id);
+  modal.hidden = false;
+  requestAnimationFrame(() => modal.classList.add("open"));
+  const focusable = modal.querySelector(".btn-close-modal");
+  if (focusable) focusable.focus();
+}
+
+function closeModal(id) {
+  const modal = $(id);
+  modal.classList.remove("open");
+  modal.hidden = true;
+}
+
 function openTranscriptModal(callId) {
-  selectedCall = cachedCalls.find(c => c.id === callId);
+  selectedCall = state.calls.find(c => c.id === callId);
   if (!selectedCall) return;
-
-  document.getElementById("modalCallTitle").textContent = `Llamada con ${selectedCall.client}`;
-  const metaContainer = document.getElementById("modalCallMeta");
-  metaContainer.innerHTML = "";
-
-  const metaFields = [
-    { label: "Fecha:", val: selectedCall.date },
-    { label: "Teléfono:", val: selectedCall.phone },
-    { label: "Duración:", val: selectedCall.duration },
-    { label: "Operadora:", val: selectedCall.operator },
-  ];
-  metaFields.forEach(f => {
-    const s = document.createElement("span");
-    const str = document.createElement("strong");
-    str.textContent = f.label + " ";
-    s.appendChild(str);
-    s.appendChild(document.createTextNode(f.val || ""));
-    metaContainer.appendChild(s);
-  });
-
-  document.getElementById("modalTranscriptContent").textContent = selectedCall.transcript || "";
-  document.getElementById("transcriptModal").classList.add("open");
+  setText("modalCallTitle", `Llamada con ${selectedCall.client}`);
+  const meta = $("modalCallMeta");
+  meta.textContent = "";
+  [["Fecha:", selectedCall.date], ["Teléfono:", selectedCall.phone], ["Duración:", selectedCall.duration], ["Operadora:", selectedCall.operator]]
+    .forEach(([label, val]) => {
+      const span = document.createElement("span");
+      const strong = document.createElement("strong");
+      strong.textContent = `${label} `;
+      span.append(strong, document.createTextNode(val || ""));
+      meta.appendChild(span);
+    });
+  $("modalTranscriptContent").textContent = selectedCall.transcript || "";
+  openModal("transcriptModal");
 }
 
 function closeTranscriptModal() {
-  document.getElementById("transcriptModal").classList.remove("open");
-}
-
-function closeModalOnBackdrop(e) {
-  if (e.target.id === "transcriptModal") {
-    closeTranscriptModal();
-  }
+  closeModal("transcriptModal");
 }
 
 function downloadTranscriptFile(ext) {
   if (!selectedCall) return;
-  let content = "";
-  let mime = "text/plain";
-
   if (ext === "json") {
-    content = JSON.stringify(selectedCall, null, 2);
-    mime = "application/json";
-  } else {
-    content = `DETALLES DE LA LLAMADA\n====================\nCliente: ${selectedCall.client}\nTeléfono: ${selectedCall.phone}\nFecha: ${selectedCall.date}\nDuración: ${selectedCall.duration}\n\nTRANSCRIPCIÓN COMPLETA:\n--------------------\n${selectedCall.transcript}`;
+    downloadBlob(JSON.stringify(selectedCall, null, 2), "application/json", `transcripcion_${selectedCall.id}.json`);
+    return;
   }
-
-  const blob = new Blob([content], { type: `${mime};charset=utf-8;` });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `transcripcion_${selectedCall.id}.${ext}`;
-  link.click();
+  const content = `DETALLES DE LA LLAMADA\n====================\nCliente: ${selectedCall.client}\nTeléfono: ${selectedCall.phone}\nFecha: ${selectedCall.date}\nDuración: ${selectedCall.duration}\n\nTRANSCRIPCIÓN COMPLETA:\n--------------------\n${selectedCall.transcript}`;
+  downloadBlob(content, "text/plain", `transcripcion_${selectedCall.id}.txt`);
 }
 
 // ==============================================================================
-// 9. MÓDULO 3: BANDEJA DE LEADS
+// 9. BANDEJA DE LEADS (LISTA + KANBAN)
 // ==============================================================================
 
-let cachedLeads = [];
+async function refreshLeads() {
+  try {
+    const { leads, meta } = await provider.getLeads();
+    state.leads = leads;
+    state.leadsMeta = meta;
+  } catch (err) {
+    state.leadsMeta = { source: "error", degraded: true, sheet_error: err.message };
+  }
+  renderLeadsSourceNotice();
+  renderLeadsGrid();
+  renderTwentyKanban();
+  refreshSystemMetrics(false);
+}
 
-async function renderLeadsGrid(filter = "all") {
-  cachedLeads = await dataProvider.getLeads();
-  const container = document.getElementById("leadsCardsGrid");
-  container.innerHTML = "";
+function renderLeadsSourceNotice() {
+  const meta = state.leadsMeta || {};
+  if (!isLive()) return;
+  if (meta.degraded) {
+    setMode("live", `Google Sheets no disponible (${meta.sheet_error || meta.sheet_status || "error"}). Se muestran solo los leads de esta sesión del servidor.`, "error");
+  } else if (meta.rows_needing_repair) {
+    setMode("live", `${meta.rows_needing_repair} fila(s) del Sheet tienen el teléfono en #ERROR!: ejecutar scripts/repair_sheet_phones.py --apply.`, "warning");
+  } else {
+    setMode("live", "", "info");
+  }
+}
 
-  const filtered = cachedLeads.filter(l => {
-    if (filter === "all") return true;
-    return l.stage === filter;
+function docusealBadge(lead) {
+  const status = String(lead.docusealStatus || "BORRADOR").toUpperCase();
+  const map = {
+    FIRMADO: ["✅ Firmado", ""],
+    ENVIADO: ["📨 Enviado", "pending"],
+    VISTO: ["👁 Visto", "pending"],
+  };
+  const [text, cls] = map[status] || ["📄 Borrador", "draft"];
+  const span = document.createElement("span");
+  span.className = `docuseal-badge ${cls}`.trim();
+  span.textContent = `DocuSeal: ${text}`;
+  return span;
+}
+
+function buildStageSelect(lead, onChange) {
+  const select = document.createElement("select");
+  select.className = "lead-stage-select";
+  select.setAttribute("aria-label", `Etapa de ${lead.name}`);
+  STAGES.forEach(stg => {
+    const opt = document.createElement("option");
+    opt.value = stg;
+    opt.textContent = stg.charAt(0).toUpperCase() + stg.slice(1);
+    opt.selected = lead.stage === stg;
+    select.appendChild(opt);
   });
+  select.addEventListener("change", (e) => onChange(e.target.value, select));
+  return select;
+}
 
+async function changeLeadStage(lead, newStage, select) {
+  const previous = lead.stage;
+  select.disabled = true;
+  try {
+    await provider.updateLeadStage(lead.id, newStage);
+    lead.stage = newStage;
+    renderLeadsGrid();
+    renderTwentyKanban();
+  } catch (err) {
+    select.value = previous;
+    window.alert(`No se pudo guardar la etapa: ${err.message}`);
+  } finally {
+    select.disabled = false;
+  }
+}
+
+function renderLeadsGrid() {
+  const container = $("leadsCardsGrid");
+  container.textContent = "";
+  setText("totalLeadsCount", String(state.leads.length));
+  setText("leadsCountBadge", String(state.leads.length));
+
+  const filtered = state.leads.filter(l => state.leadFilter === "all" || l.stage === state.leadFilter);
   if (filtered.length === 0) {
-    const emptyState = createEmptyStateElement("💼", "No hay prospectos en esta etapa", "Todos los leads han avanzado o no hay registros para el filtro seleccionado.");
-    emptyState.style.gridColumn = "1 / -1";
-    container.appendChild(emptyState);
+    const empty = createEmptyStateElement("💼", "Sin leads", state.leads.length
+      ? "No hay leads en esta etapa."
+      : (isLive() ? "El Google Sheet no tiene leads todavía." : "No hay datos de ejemplo."));
+    empty.classList.add("span-all");
+    container.appendChild(empty);
     return;
   }
 
-  const amountsMap = {
-    "lead-1": "4.800 €",
-    "lead-2": "1.900 €",
-    "lead-3": "6.500 €",
-    "lead-4": "3.200 €",
-    "lead-5": "1.200 €",
-    "lead-6": "2.400 €"
-  };
-
   filtered.forEach(lead => {
-    const card = document.createElement("div");
+    const card = document.createElement("article");
     card.className = "lead-box-card";
-    const isSigned = lead.stage === "ganado" || lead.docusealSigned;
-    const badgeText = isSigned ? "✅ DocuSeal: Firmado" : (lead.stage === "agendado" ? "📝 DocuSeal: Listo" : "📄 DocuSeal: Borrador");
-    const badgeClass = isSigned ? "" : (lead.stage === "agendado" ? "pending" : "draft");
 
-    // Header
     const header = document.createElement("div");
     header.className = "lead-box-header";
+    const info = document.createElement("div");
+    const name = document.createElement("div");
+    name.className = "lead-box-name";
+    name.textContent = lead.name;
+    const phone = document.createElement("div");
+    phone.className = "lead-box-phone";
+    phone.textContent = `${lead.phone} • ${lead.company}`;
+    info.append(name, phone);
+    header.append(info, buildStageSelect(lead, (v, sel) => changeLeadStage(lead, v, sel)));
 
-    const infoDiv = document.createElement("div");
-    const nameDiv = document.createElement("div");
-    nameDiv.className = "lead-box-name";
-    nameDiv.textContent = lead.name || "";
-    const phoneDiv = document.createElement("div");
-    phoneDiv.className = "lead-box-phone";
-    phoneDiv.textContent = `${lead.phone || ""} • ${lead.company || ""}`;
-    infoDiv.appendChild(nameDiv);
-    infoDiv.appendChild(phoneDiv);
-
-    const stageSelect = document.createElement("select");
-    stageSelect.className = "lead-stage-select";
-    ["nuevo", "contactado", "agendado", "ganado"].forEach(stg => {
-      const opt = document.createElement("option");
-      opt.value = stg;
-      opt.textContent = stg.charAt(0).toUpperCase() + stg.slice(1);
-      if (lead.stage === stg) opt.selected = true;
-      stageSelect.appendChild(opt);
-    });
-    stageSelect.addEventListener("change", (e) => changeLeadStage(lead.id, e.target.value));
-
-    header.appendChild(infoDiv);
-    header.appendChild(stageSelect);
-    card.appendChild(header);
-
-    // Meta bar
     const metaBar = document.createElement("div");
-    metaBar.style.cssText = "display: flex; justify-content: space-between; align-items: center; margin-top: -4px;";
-    const docuSpan = document.createElement("span");
-    docuSpan.className = `docuseal-badge ${badgeClass}`;
-    docuSpan.textContent = badgeText;
-    const amountSpan = document.createElement("span");
-    amountSpan.style.cssText = "font-family: var(--font-mono); font-weight: 700; color: var(--gold-light); font-size: 0.85rem;";
-    amountSpan.textContent = amountsMap[lead.id] || "2.500 €";
-    metaBar.appendChild(docuSpan);
-    metaBar.appendChild(amountSpan);
-    card.appendChild(metaBar);
+    metaBar.className = "lead-box-meta";
+    const amount = document.createElement("span");
+    amount.className = "lead-box-amount";
+    amount.textContent = lead.amount || "Por cotizar";
+    metaBar.append(docusealBadge(lead), amount);
 
-    // Interest
-    const interestDiv = document.createElement("div");
-    interestDiv.style.cssText = "font-size: 0.85rem; font-weight: 600; color: var(--gold-light);";
-    interestDiv.textContent = `${lead.interest || ""} (Fecha: ${lead.eventDate || ""})`;
-    card.appendChild(interestDiv);
+    const interest = document.createElement("div");
+    interest.className = "lead-box-interest";
+    interest.textContent = `${lead.interest} · ${lead.eventDate}`;
 
-    // Summary
-    const summaryDiv = document.createElement("div");
-    summaryDiv.className = "lead-box-summary";
-    summaryDiv.textContent = lead.summary || "";
-    card.appendChild(summaryDiv);
+    const summary = document.createElement("div");
+    summary.className = "lead-box-summary";
+    summary.textContent = lead.summary;
 
-    // Footer
     const footer = document.createElement("div");
     footer.className = "lead-box-footer";
-    const captSpan = document.createElement("span");
-    captSpan.textContent = `Capturado: ${lead.timestamp || ""}`;
-    const btnGroup = document.createElement("div");
-    btnGroup.style.cssText = "display: flex; gap: 6px;";
-
+    const captured = document.createElement("span");
+    captured.textContent = `Capturado: ${lead.timestamp}`;
+    const actions = document.createElement("div");
+    actions.className = "lead-box-actions";
     const btnDoc = document.createElement("button");
+    btnDoc.type = "button";
     btnDoc.className = "btn-docuseal";
     btnDoc.textContent = "📝 Contrato";
     btnDoc.addEventListener("click", () => openDocuSealModal(lead.id));
-
     const btnWa = document.createElement("button");
+    btnWa.type = "button";
     btnWa.className = "btn-sm btn-outline";
     btnWa.textContent = "WhatsApp";
-    btnWa.addEventListener("click", () => openWhatsAppForPhone(lead.phone));
+    btnWa.addEventListener("click", () => openWhatsAppForPhone(lead.phone, `Hola ${lead.name}, te contactamos de WELUX sobre tu solicitud.`));
+    actions.append(btnDoc, btnWa);
+    footer.append(captured, actions);
 
-    btnGroup.appendChild(btnDoc);
-    btnGroup.appendChild(btnWa);
-    footer.appendChild(captSpan);
-    footer.appendChild(btnGroup);
-    card.appendChild(footer);
-
+    card.append(header, metaBar, interest, summary, footer);
     container.appendChild(card);
   });
+}
 
-  document.getElementById("totalLeadsCount").innerText = cachedLeads.length;
-  document.getElementById("leadsCountBadge").innerText = cachedLeads.length;
+function filterLeads(stage, el) {
+  document.querySelectorAll("#view-leads .filter-btn").forEach(btn => btn.classList.toggle("active", btn === el));
+  state.leadFilter = stage;
+  renderLeadsGrid();
 }
 
 function switchLeadsViewMode(mode) {
-  const cardsGrid = document.getElementById("leadsCardsGrid");
-  const kanbanBoard = document.getElementById("twentyKanbanBoard");
-  const btnCards = document.getElementById("btnViewCards");
-  const btnKanban = document.getElementById("btnViewKanban");
-
-  if (!cardsGrid || !kanbanBoard) return;
-
-  if (mode === "kanban") {
-    cardsGrid.style.display = "none";
-    kanbanBoard.style.display = "grid";
-    if (btnCards) btnCards.classList.remove("active");
-    if (btnKanban) btnKanban.classList.add("active");
-    renderTwentyKanban();
-  } else {
-    cardsGrid.style.display = "grid";
-    kanbanBoard.style.display = "none";
-    if (btnCards) btnCards.classList.add("active");
-    if (btnKanban) btnKanban.classList.remove("active");
-    renderLeadsGrid();
-  }
+  state.leadsView = mode;
+  $("leadsCardsGrid").hidden = mode === "kanban";
+  $("twentyKanbanBoard").hidden = mode !== "kanban";
+  $("btnViewCards").classList.toggle("active", mode !== "kanban");
+  $("btnViewKanban").classList.toggle("active", mode === "kanban");
+  if (mode === "kanban") renderTwentyKanban();
+  else renderLeadsGrid();
 }
 
-async function renderTwentyKanban() {
-  cachedLeads = await dataProvider.getLeads();
-  const stages = ["nuevo", "contactado", "agendado", "ganado"];
-  const amountsMap = {
-    "lead-1": "4.800 €",
-    "lead-2": "1.900 €",
-    "lead-3": "6.500 €",
-    "lead-4": "3.200 €",
-    "lead-5": "1.200 €",
-    "lead-6": "2.400 €"
-  };
-
-  stages.forEach(stage => {
-    const capitalized = stage.charAt(0).toUpperCase() + stage.slice(1);
-    const colContainer = document.getElementById(`kanbanCol${capitalized}`);
-    const countEl = document.getElementById(`kanbanCount${capitalized}`);
-    if (!colContainer) return;
-
-    colContainer.innerHTML = "";
-    const stageLeads = cachedLeads.filter(l => l.stage === stage);
-    if (countEl) countEl.innerText = stageLeads.length;
+function renderTwentyKanban() {
+  STAGES.forEach(stage => {
+    const key = stage === "ganado" ? "Ganado" : stage.charAt(0).toUpperCase() + stage.slice(1);
+    const col = $(`kanbanCol${key}`);
+    if (!col) return;
+    col.textContent = "";
+    const stageLeads = state.leads.filter(l => l.stage === stage);
+    setText(`kanbanCount${key}`, String(stageLeads.length));
 
     stageLeads.forEach(lead => {
       const card = document.createElement("div");
       card.className = "twenty-card";
-      const amount = amountsMap[lead.id] || "2.500 €";
-      const isSigned = lead.stage === "ganado" || lead.docusealSigned;
 
       const header = document.createElement("div");
       header.className = "twenty-card-header";
-      const nameSpan = document.createElement("span");
-      nameSpan.className = "twenty-card-name";
-      nameSpan.textContent = lead.name || "";
-      const amtSpan = document.createElement("span");
-      amtSpan.className = "twenty-card-amount";
-      amtSpan.textContent = amount;
-      header.appendChild(nameSpan);
-      header.appendChild(amtSpan);
-      card.appendChild(header);
+      const name = document.createElement("span");
+      name.className = "twenty-card-name";
+      name.textContent = lead.name;
+      const amount = document.createElement("span");
+      amount.className = "twenty-card-amount";
+      amount.textContent = lead.amount || "Por cotizar";
+      header.append(name, amount);
 
-      const subHeader = document.createElement("div");
-      subHeader.style.cssText = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;";
-      const intSpan = document.createElement("span");
-      intSpan.style.cssText = "font-size: 0.78rem; color: var(--gold-light); font-weight: 600;";
-      intSpan.textContent = lead.interest || "";
-      const docuBadge = document.createElement("span");
-      docuBadge.className = isSigned ? "docuseal-badge" : "docuseal-badge pending";
-      docuBadge.style.fontSize = "0.65rem";
-      docuBadge.textContent = isSigned ? "✓ Firmado" : "DocuSeal";
-      subHeader.appendChild(intSpan);
-      subHeader.appendChild(docuBadge);
-      card.appendChild(subHeader);
-
-      const detailsDiv = document.createElement("div");
-      detailsDiv.className = "twenty-card-details";
-      detailsDiv.textContent = (lead.summary || "").slice(0, 75) + "...";
-      card.appendChild(detailsDiv);
+      const details = document.createElement("div");
+      details.className = "twenty-card-details";
+      const summary = lead.summary || lead.interest || "";
+      details.textContent = summary.length > 90 ? `${summary.slice(0, 90)}…` : summary;
 
       const footer = document.createElement("div");
       footer.className = "twenty-card-footer";
       const btnDoc = document.createElement("button");
+      btnDoc.type = "button";
       btnDoc.className = "btn-docuseal";
-      btnDoc.style.cssText = "padding: 2px 6px; font-size: 0.7rem;";
-      btnDoc.textContent = "📝 DocuSeal";
+      btnDoc.textContent = "📝 Contrato";
       btnDoc.addEventListener("click", () => openDocuSealModal(lead.id));
+      footer.append(btnDoc, buildStageSelect(lead, (v, sel) => changeLeadStage(lead, v, sel)));
 
-      const sel = document.createElement("select");
-      sel.style.cssText = "background: none; border: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.72rem; border-radius: 4px; padding: 2px 4px;";
-      ["nuevo", "contactado", "agendado", "ganado"].forEach(stg => {
-        const opt = document.createElement("option");
-        opt.value = stg;
-        opt.textContent = stg.charAt(0).toUpperCase() + stg.slice(1);
-        if (lead.stage === stg) opt.selected = true;
-        sel.appendChild(opt);
-      });
-      sel.addEventListener("change", (e) => {
-        changeLeadStage(lead.id, e.target.value);
-        renderTwentyKanban();
-      });
-
-      footer.appendChild(btnDoc);
-      footer.appendChild(sel);
-      card.appendChild(footer);
-
-      colContainer.appendChild(card);
+      card.append(header, docusealBadge(lead), details, footer);
+      col.appendChild(card);
     });
   });
 }
 
-function openDirectBookingModal() {
-  const clientName = prompt("Nombre del cliente para la cita técnica rápida (Dograh Tool):", "Jean-Luc Weber");
-  if (!clientName) return;
-  const timeSlot = prompt("Horario propuesto para la llamada técnica (ej: 16:30):", "16:30");
-  if (!timeSlot) return;
-
-  const newAppt = {
-    title: `Reunión Técnica · ${clientName}`,
-    date: "18 Oct 2026",
-    time: `${timeSlot} - 17:15`,
-    type: "Reunión Técnica (Dograh MCP)",
-    description: `Inspección de sonido e iluminación confirmada de forma autónoma.`
-  };
-  APPOINTMENTS_DATA.unshift(newAppt);
-  renderAppointments();
-  alert(`✓ Cita confirmada con ${clientName} a las ${timeSlot}. Sincronizada con Google Calendar y notificada a n8n.`);
-}
-
-function filterLeads(stage) {
-  document.querySelectorAll("#view-leads .filter-btn").forEach(btn => btn.classList.remove("active"));
-  event.target.classList.add("active");
-  renderLeadsGrid(stage);
-}
-
-async function changeLeadStage(leadId, newStage) {
-  await dataProvider.updateLeadStage(leadId, newStage);
-}
-
-function openWhatsAppForPhone(phone) {
-  const clean = phone.replace(/[^0-9]/g, "");
-  window.open(`https://wa.me/${clean}?text=${encodeURIComponent("Hola, te contactamos de WELUX Events sobre tu solicitud.")}`, "_blank");
-}
-
 function exportLeadsToCRM() {
-  const payload = {
-    evento: "leads_bulk_sync",
-    timestamp: new Date().toISOString(),
-    total_leads: cachedLeads.length,
-    leads: cachedLeads
-  };
-
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `leads_crm_${Date.now()}.json`;
-  link.click();
-  alert("Leads exportados a JSON compatible con el webhook de n8n / CRM.");
+  const payload = { evento: "leads_export", modo: state.mode, timestamp: new Date().toISOString(), total_leads: state.leads.length, leads: state.leads };
+  downloadBlob(JSON.stringify(payload, null, 2), "application/json", `leads_${Date.now()}.json`);
 }
 
 // ==============================================================================
-// 10. MÓDULO 4: AGENDA DE CITAS
+// 10. AGENDA (SOLICITUDES DE CITA) Y CALENDARIO
 // ==============================================================================
 
-const APPOINTMENTS_DATA = [
-  {
-    title: "Reunión Técnica · Boda Sophie Laurent",
-    date: "18 Oct 2026",
-    time: "16:30 - 17:15",
-    type: "Reunión Técnica",
-    description: "Inspección de iluminación y acústica para Château de Septfontaines."
-  },
-  {
-    title: "Presentación Módulos LED · Bertrange",
-    date: "22 Oct 2026",
-    time: "11:00 - 12:00",
-    type: "Reunión Comercial",
-    description: "Marc Becker: Definición de pantalla LED para lanzamiento automotriz."
-  },
-  {
-    title: "Prueba de Sonido Line Array · Kirchberg",
-    date: "28 Oct 2026",
-    time: "14:00 - 15:30",
-    type: "Prueba en Recinto",
-    description: "Jean-Luc Weber: Verificación de acústica para gala fin de año."
-  },
-  {
-    title: "Entrega de Equipos · Festival Dudelange",
-    date: "12 Nov 2026",
-    time: "09:30 - 10:30",
-    type: "Montaje & Entrega",
-    description: "Claire Muller: 4 altavoces activos y mesa de mezclas para fin de semana."
+const calendarCursor = new Date();
+calendarCursor.setDate(1);
+
+async function refreshAppointments() {
+  try {
+    state.appointments = await provider.getAppointments();
+  } catch {
+    state.appointments = [];
   }
-];
+  setText("agendaCountBadge", String(state.appointments.length));
+  setText("appointmentsBadge", `${state.appointments.length} solicitud${state.appointments.length === 1 ? "" : "es"}`);
+  renderCalendar();
+  renderAppointments();
+}
+
+function shiftCalendar(delta) {
+  const n = Number(delta);
+  if (n === 0) {
+    const today = new Date();
+    calendarCursor.setFullYear(today.getFullYear(), today.getMonth(), 1);
+  } else {
+    calendarCursor.setMonth(calendarCursor.getMonth() + n);
+  }
+  renderCalendar();
+}
 
 function renderCalendar() {
-  const grid = document.getElementById("calendarDaysGrid") || document.getElementById("calendarGrid");
-  if (!grid) return;
-  grid.innerHTML = "";
+  const grid = $("calendarDaysGrid");
+  grid.textContent = "";
+  const year = calendarCursor.getFullYear();
+  const month = calendarCursor.getMonth();
+  setText("calendarMonthTitle", calendarCursor.toLocaleDateString("es-ES", { month: "long", year: "numeric" }));
 
-  const daysInMonth = 31;
-  const startDayOffset = 4; // Oct 2026 empieza en Jueves
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const offset = (new Date(year, month, 1).getDay() + 6) % 7; // lunes = 0
+  const today = new Date();
+  const eventDays = new Set(state.appointments
+    .map(a => new Date(`${a.requested_date}T12:00:00`))
+    .filter(d => !Number.isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === month)
+    .map(d => d.getDate()));
 
-  for (let i = 0; i < startDayOffset; i++) {
-    const emptyCell = document.createElement("div");
-    emptyCell.className = "cal-day empty";
-    grid.appendChild(emptyCell);
+  for (let i = 0; i < offset; i++) {
+    const empty = document.createElement("div");
+    empty.className = "cal-day empty";
+    grid.appendChild(empty);
   }
-
   for (let day = 1; day <= daysInMonth; day++) {
-    const dayCell = document.createElement("div");
-    dayCell.className = "cal-day";
-    if (day === 1) dayCell.classList.add("today");
-
-    const numSpan = document.createElement("span");
-    numSpan.className = "cal-day-num";
-    numSpan.textContent = String(day);
-    dayCell.appendChild(numSpan);
-
-    if ([18, 22, 28].includes(day)) {
-      dayCell.classList.add("has-event");
+    const cell = document.createElement("div");
+    cell.className = "cal-day";
+    if (day === today.getDate() && month === today.getMonth() && year === today.getFullYear()) cell.classList.add("today");
+    const num = document.createElement("span");
+    num.className = "cal-day-num";
+    num.textContent = String(day);
+    cell.appendChild(num);
+    if (eventDays.has(day)) {
+      cell.classList.add("has-event");
       const dot = document.createElement("span");
       dot.className = "cal-event-dot";
-      dayCell.appendChild(dot);
+      cell.appendChild(dot);
     }
-
-    grid.appendChild(dayCell);
+    grid.appendChild(cell);
   }
 }
 
 function renderAppointments() {
-  const container = document.getElementById("appointmentsList");
-  container.innerHTML = "";
-
-  if (APPOINTMENTS_DATA.length === 0) {
-    container.appendChild(createEmptyStateElement("📅", "Agenda despejada", "No hay citas programadas para el período actual."));
+  const container = $("appointmentsList");
+  container.textContent = "";
+  if (state.appointments.length === 0) {
+    container.appendChild(createEmptyStateElement("📅", "Sin solicitudes", "Cuando Sofía registre una solicitud de cita aparecerá aquí."));
     return;
   }
+  state.appointments.forEach(app => {
+    const date = new Date(`${app.requested_date}T12:00:00`);
+    const valid = !Number.isNaN(date.getTime());
 
-  APPOINTMENTS_DATA.forEach(app => {
-    const card = document.createElement("div");
-    card.className = "appointment-item";
-
+    const item = document.createElement("div");
+    item.className = "appointment-item";
     const dateBox = document.createElement("div");
     dateBox.className = "app-date-box";
-    const daySpan = document.createElement("span");
-    daySpan.className = "app-day";
-    daySpan.textContent = (app.date || "").split(" ")[0] || "";
-    const monthSpan = document.createElement("span");
-    monthSpan.className = "app-month";
-    monthSpan.textContent = (app.date || "").split(" ")[1] || "";
-    dateBox.appendChild(daySpan);
-    dateBox.appendChild(monthSpan);
+    const day = document.createElement("span");
+    day.className = "app-day";
+    day.textContent = valid ? String(date.getDate()) : "?";
+    const month = document.createElement("span");
+    month.className = "app-month";
+    month.textContent = valid ? date.toLocaleDateString("es-ES", { month: "short" }) : String(app.requested_date || "");
+    dateBox.append(day, month);
 
-    const infoDiv = document.createElement("div");
-    infoDiv.className = "app-info";
-    const titleDiv = document.createElement("div");
-    titleDiv.className = "app-title";
-    titleDiv.textContent = app.title || "";
-    const metaDiv = document.createElement("div");
-    metaDiv.className = "app-meta";
-    metaDiv.textContent = `${app.time || ""} • ${app.type || ""}`;
-    const descDiv = document.createElement("div");
-    descDiv.className = "app-desc";
-    descDiv.textContent = app.description || "";
-    infoDiv.appendChild(titleDiv);
-    infoDiv.appendChild(metaDiv);
-    infoDiv.appendChild(descDiv);
+    const info = document.createElement("div");
+    info.className = "app-info";
+    const title = document.createElement("div");
+    title.className = "app-title";
+    title.textContent = `${app.event_type || "Reunión"} · ${app.client_name || "Cliente"}`;
+    const meta = document.createElement("div");
+    meta.className = "app-meta";
+    meta.textContent = `${app.requested_time || "Hora a convenir"} • ${app.status === "PENDIENTE_CONFIRMACION" ? "Pendiente de confirmación" : app.status || ""}`;
+    info.append(title, meta);
 
-    const syncBtn = document.createElement("button");
-    syncBtn.className = "btn-sm btn-outline";
-    syncBtn.textContent = "Sincronizar";
-    syncBtn.addEventListener("click", () => alert("Recordatorio enviado a Google Calendar."));
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-sm btn-outline";
+    btn.textContent = "📅 .ics";
+    btn.title = "Descargar para añadir a tu calendario";
+    btn.disabled = !valid;
+    btn.addEventListener("click", () => downloadAppointmentIcs(app));
 
-    card.appendChild(dateBox);
-    card.appendChild(infoDiv);
-    card.appendChild(syncBtn);
-
-    container.appendChild(card);
+    item.append(dateBox, info, btn);
+    container.appendChild(item);
   });
 }
 
+function icsEscape(text) {
+  return String(text || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+}
+
+function downloadAppointmentIcs(app) {
+  const [h, m] = /^\d{1,2}:\d{2}$/.test(app.requested_time || "") ? app.requested_time.split(":") : ["09", "00"];
+  const start = `${app.requested_date.replace(/-/g, "")}T${h.padStart(2, "0")}${m}00`;
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const ics = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//WELUX//La Centralita//ES", "BEGIN:VEVENT",
+    `UID:${icsEscape(app.id || stamp)}@la-centralita`, `DTSTAMP:${stamp}`,
+    `DTSTART;TZID=Europe/Luxembourg:${start}`, "DURATION:PT45M",
+    `SUMMARY:${icsEscape(`${app.event_type || "Reunión"} · ${app.client_name || ""}`)}`,
+    `DESCRIPTION:${icsEscape(`Solicitud registrada por Sofía. Tel: ${app.phone || "—"}. Pendiente de confirmar con el cliente.`)}`,
+    "STATUS:TENTATIVE", "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  downloadBlob(ics, "text/calendar", `cita_${app.requested_date}.ics`);
+}
+
+function openDirectBookingModal() {
+  if (isLive()) {
+    window.alert("Las solicitudes de cita las registra Sofía durante las llamadas. Para citas manuales usa tu calendario.");
+    return;
+  }
+  const clientName = (window.prompt("Nombre del cliente (ejemplo local):") || "").trim();
+  if (!clientName) return;
+  const date = (window.prompt("Fecha (AAAA-MM-DD):", isoDateOffset(2)) || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  const time = (window.prompt("Hora (HH:MM):", "16:30") || "").trim();
+  DEMO_APPOINTMENTS.unshift({ id: `demo-${Date.now()}`, client_name: clientName, event_type: "Reunión técnica", requested_date: date, requested_time: time, status: "PENDIENTE_CONFIRMACION" });
+  refreshAppointments();
+}
+
 // ==============================================================================
-// 11. MÓDULO DOCUSEAL: FIRMA ELECTRÓNICA DE CONTRATOS (NOTA 24)
+// 11. DOCUSEAL
 // ==============================================================================
 
 let currentDocuSealLead = null;
 
 function openDocuSealModal(leadId) {
-  currentDocuSealLead = cachedLeads.find(l => l.id === leadId) || cachedLeads[0];
-  if (!currentDocuSealLead) return;
-
-  const amountsMap = {
-    "lead-1": "2.400,00 €",
-    "lead-2": "3.800,00 €",
-    "lead-3": "4.500,00 €",
-    "lead-4": "1.800,00 €",
-    "lead-5": "6.500,00 €"
-  };
-
-  const amount = amountsMap[currentDocuSealLead.id] || "2.500,00 €";
-  const isSigned = currentDocuSealLead.stage === "ganado" || currentDocuSealLead.docusealSigned;
-
-  const titleEl = document.getElementById("docusealContractTitle");
-  if (titleEl) {
-    const interest = (currentDocuSealLead.interest || "").toLowerCase();
-    if (interest.includes("fotoespejo") || interest.includes("inflable")) {
-      titleEl.innerText = "WELUX Rentals S.à r.l. — Contrato de Alquiler de Fotoespejo e Inflables";
-    } else if (interest.includes("asesoría") || interest.includes("procesos")) {
-      titleEl.innerText = "WELUX Consulting S.à r.l. — Contrato de Asesoría de Negocios y Consultoría";
-    } else if (interest.includes("web") || interest.includes("crm")) {
-      titleEl.innerText = "WELUX Digital Services S.à r.l. — Contrato de Desarrollo Web, Chatbots & CRM";
-    } else {
-      titleEl.innerText = "WELUX Events S.à r.l. — Contrato de Producción Técnica para Eventos";
-    }
+  currentDocuSealLead = state.leads.find(l => l.id === leadId) || state.leads[0];
+  if (!currentDocuSealLead) {
+    window.alert("No hay leads para generar contrato.");
+    return;
   }
+  const lead = currentDocuSealLead;
+  const interest = String(lead.interest || "").toLowerCase();
+  let title = "WELUX Events S.à r.l. — Contrato de Producción Técnica para Eventos";
+  if (interest.includes("fotoespejo") || interest.includes("inflable")) title = "WELUX — Contrato de Alquiler de Fotoespejo e Inflables";
+  else if (interest.includes("asesor") || interest.includes("proceso")) title = "WELUX — Contrato de Asesoría de Negocios";
+  else if (interest.includes("web") || interest.includes("crm")) title = "WELUX — Contrato de Desarrollo Web, Chatbots & CRM";
 
-  document.getElementById("docusealContractId").innerText = `DOCUSEAL-WLX-2026-${currentDocuSealLead.id.replace('lead-', '094')}`;
-  document.getElementById("docusealClientName").innerText = currentDocuSealLead.name;
-  document.getElementById("docusealClientCompany").innerText = currentDocuSealLead.company || "Luxemburgo";
-  document.getElementById("docusealClientPhone").innerText = currentDocuSealLead.phone;
-  document.getElementById("docusealEventInterest").innerText = currentDocuSealLead.interest;
-  document.getElementById("docusealEventDate").innerText = currentDocuSealLead.eventDate || "Noviembre 2026";
-  document.getElementById("docusealEventSummary").innerText = currentDocuSealLead.summary;
-  document.getElementById("docusealContractAmount").innerText = amount;
-  document.getElementById("docusealSignatureVisual").innerText = currentDocuSealLead.name;
+  setText("docusealContractTitle", title);
+  setText("docusealContractId", lead.id);
+  setText("docusealClientName", lead.name);
+  setText("docusealClientCompany", lead.company || "—");
+  setText("docusealClientPhone", lead.phone);
+  setText("docusealEventInterest", lead.interest);
+  setText("docusealEventDate", lead.eventDate || "A convenir");
+  setText("docusealEventSummary", lead.summary || "—");
+  setText("docusealContractAmount", lead.amount || "Por cotizar");
+  setText("docusealSignatureVisual", lead.name);
 
-  const badgeEl = document.getElementById("docusealContractBadge");
-  const btnSign = document.getElementById("btnSignDocuSeal");
+  const status = String(lead.docusealStatus || "BORRADOR").toUpperCase();
+  const signed = status === "FIRMADO";
+  const badge = $("docusealContractBadge");
+  badge.className = signed ? "docuseal-badge" : "docuseal-badge pending";
+  badge.textContent = signed ? "FIRMADO" : status === "ENVIADO" ? "ENVIADO · PENDIENTE DE FIRMA" : "BORRADOR";
+  setText("docusealCertInfo", signed
+    ? "Firmado en DocuSeal (el certificado está en la plataforma DocuSeal)."
+    : lead.docusealUrl ? "Enlace de firma generado en DocuSeal." : "Sin enlace de firma: emitir el contrato desde DocuSeal.");
 
-  if (isSigned) {
-    badgeEl.className = "docuseal-badge";
-    badgeEl.innerText = "FIRMADO DIGITALMENTE";
-    btnSign.innerText = "✓ Documento Ya Firmado";
-    btnSign.disabled = true;
-    document.getElementById("docusealCertInfo").innerText = "Certificado eIDAS: 8f4a...92c1 · IP: 194.154.200.12 (Luxembourg) · Timestamp: 01 Oct 2026";
-  } else {
-    badgeEl.className = "docuseal-badge pending";
-    badgeEl.innerText = "PENDIENTE DE FIRMA";
-    btnSign.innerText = "✍️ Firmar Ahora (Simulación en Vivo)";
-    btnSign.disabled = false;
-    document.getElementById("docusealCertInfo").innerText = "Esperando rúbrica digital mediante motor DocuSeal...";
-  }
+  const link = $("docusealSignLink");
+  const safeUrl = lead.docusealUrl && /^https:\/\//.test(lead.docusealUrl) ? lead.docusealUrl : null;
+  link.hidden = !safeUrl;
+  if (safeUrl) link.href = safeUrl;
 
-  document.getElementById("docusealModal").classList.add("open");
+  const btnSign = $("btnSignDocuSeal");
+  btnSign.hidden = isLive();
+  btnSign.disabled = signed;
+  btnSign.textContent = signed ? "✓ Firmado (ejemplo)" : "✍️ Simular firma (modo demo)";
+  openModal("docusealModal");
 }
 
 function closeDocuSealModal() {
-  document.getElementById("docusealModal").classList.remove("open");
-}
-
-function closeDocuSealModalOnBackdrop(e) {
-  if (e.target.id === "docusealModal") {
-    closeDocuSealModal();
-  }
+  closeModal("docusealModal");
 }
 
 async function executeDocuSealSignature() {
-  if (!currentDocuSealLead) return;
-
-  currentDocuSealLead.docusealSigned = true;
+  if (isLive() || !currentDocuSealLead) return;
+  currentDocuSealLead.docusealStatus = "FIRMADO";
+  await provider.updateLeadStage(currentDocuSealLead.id, "ganado");
   currentDocuSealLead.stage = "ganado";
-  await dataProvider.updateLeadStage(currentDocuSealLead.id, "ganado");
-
-  // Re-render
   renderLeadsGrid();
   renderTwentyKanban();
-
-  const badgeEl = document.getElementById("docusealContractBadge");
-  const btnSign = document.getElementById("btnSignDocuSeal");
-  badgeEl.className = "docuseal-badge";
-  badgeEl.innerText = "FIRMADO DIGITALMENTE";
-  btnSign.innerText = "✓ Firma Completada Exitosamente";
-  btnSign.disabled = true;
-
-  document.getElementById("docusealCertInfo").innerText = `Certificado eIDAS SHA-256: 7b92...41ef · IP: 194.154.200.12 (Luxembourg) · Sellado: ${new Date().toLocaleTimeString('es-ES')}`;
-
-  alert(`✓ Contrato firmado electrónicamente con DocuSeal para ${currentDocuSealLead.name}.\nOportunidad comercial actualizada a "GANADO" en el CRM Twenty y notificada a n8n.`);
+  setText("docusealCertInfo", `Firma SIMULADA en modo demo · ${new Date().toLocaleTimeString("es-ES")} · sin validez legal`);
+  const badge = $("docusealContractBadge");
+  badge.className = "docuseal-badge";
+  badge.textContent = "FIRMADO (SIMULACIÓN)";
+  $("btnSignDocuSeal").disabled = true;
 }
 
 function sendDocuSealWhatsApp() {
-  if (!currentDocuSealLead) return;
-  const clean = currentDocuSealLead.phone.replace(/[^0-9]/g, "");
-  const message = `Hola ${currentDocuSealLead.name}, te enviamos el enlace de firma digital segura de tu contrato con WELUX Events S.à r.l.: https://docuseal.com/d/welux-${currentDocuSealLead.id}`;
-  window.open(`https://wa.me/${clean}?text=${encodeURIComponent(message)}`, "_blank");
+  const lead = currentDocuSealLead;
+  if (!lead) return;
+  if (!lead.docusealUrl) {
+    window.alert("Este contrato aún no tiene enlace de firma en DocuSeal.");
+    return;
+  }
+  openWhatsAppForPhone(lead.phone, `Hola ${lead.name}, este es el enlace para firmar tu contrato con WELUX: ${lead.docusealUrl}`);
 }
 
 function downloadSignedContract() {
-  if (!currentDocuSealLead) return;
-  const content = `CONTRATO DE PRESTACIÓN DE SERVICIOS TÉCNICOS
+  const lead = currentDocuSealLead;
+  if (!lead) return;
+  const status = String(lead.docusealStatus || "BORRADOR").toUpperCase();
+  const content = `CONTRATO DE PRESTACIÓN DE SERVICIOS — ${status === "FIRMADO" ? "FIRMADO EN DOCUSEAL" : "BORRADOR (SIN FIRMA)"}
 ======================================================
-REF: DOCUSEAL-WLX-2026-${currentDocuSealLead.id}
+REF: ${lead.id}
 EMPRESA: WELUX Events S.à r.l. (Luxemburgo)
-CLIENTE: ${currentDocuSealLead.name} (${currentDocuSealLead.company})
-TELÉFONO: ${currentDocuSealLead.phone}
-EVENTO: ${currentDocuSealLead.interest}
-FECHA: ${currentDocuSealLead.eventDate}
-ESPECIFICACIONES: ${currentDocuSealLead.summary}
-IMPORTE: Acordado según cotización oficial.
+CLIENTE: ${lead.name} (${lead.company})
+TELÉFONO: ${lead.phone}
+SERVICIO: ${lead.interest}
+FECHA: ${lead.eventDate}
+ESPECIFICACIONES: ${lead.summary}
+IMPORTE: ${lead.amount || "Por cotizar"}
 
-FIRMA ELECTRÓNICA DOCUSEAL:
-------------------------------------------------------
-Estado: FIRMADO DIGITALMENTE CONFORME eIDAS / RGPD
-Firma del Cliente: ${currentDocuSealLead.name}
-Huella SHA-256: 8f4a21cd67b841ea92c109df55a301ec
-Ubicación del Servidor: Luxemburgo (UE)
-Fecha de Validación: ${new Date().toISOString()}`;
-
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8;" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `contrato_docuseal_${currentDocuSealLead.id}.txt`;
-  link.click();
+Estado DocuSeal: ${status}
+${status === "FIRMADO" ? "El documento firmado y su certificado de auditoría se descargan desde DocuSeal." : "Documento informativo sin validez contractual hasta su firma en DocuSeal."}
+Generado: ${new Date().toISOString()}${isLive() ? "" : "\n*** DATOS DE EJEMPLO (MODO DEMO) ***"}`;
+  downloadBlob(content, "text/plain", `contrato_${lead.id}.txt`);
 }
 
 // ==============================================================================
-// 12. MÓDULO CLOUDFLARE: AUDITORÍA DE SEGURIDAD (NOTA 25 & EXTRA)
+// 12. ESTADO DEL SISTEMA (DATOS REALES)
 // ==============================================================================
 
-const SECURITY_FINDINGS_DATA = {
-  "audit_version": "1.0.0",
-  "audit_engine": "cloudflare/security-audit-skill",
-  "target": "yoyocubano/la-centralita",
-  "audit_date": "2026-10-01T14:30:00Z",
-  "framework_phases": [
-    {
-      "phase": 1,
-      "name": "Reconnaissance",
-      "status": "COMPLETED",
-      "attack_surfaces": ["WebRTC SFU", "n8n Webhook", "Piper TTS IPC", "Client SPA"]
-    },
-    {
-      "phase": 2,
-      "name": "Coverage Tracking",
-      "status": "COMPLETED",
-      "ledger": "security/coverage-ledger.json",
-      "coverage": "100%"
-    },
-    {
-      "phase": 3,
-      "name": "Hunting & Vector Analysis",
-      "status": "COMPLETED",
-      "results": {
-        "CWE-798_Hardcoded_Credentials": "PASS (Zero secrets in git)",
-        "CWE-79_Cross_Site_Scripting": "PASS (DOM textContent sanitization)",
-        "Prompt_Injection_Resistance": "PASS (Sofía system identity boundary)",
-        "WebRTC_JWT_TTL": "PASS (Strict 1h expiration)",
-        "Twilio_PBX_Isolation": "PASS (0 twilio dependencies, SIP nativo)",
-        "GDPR_Luxembourg_PII": "PASS (Minimal consent fields only)"
-      }
-    },
-    {
-      "phase": 4,
-      "name": "Candidate Validation & Disproval",
-      "status": "COMPLETED",
-      "disproved_false_positives": ["CAND-001 (Token script CLI isolation)", "CAND-002 (Deepgram clean UTF-8 text)"]
-    },
-    {
-      "phase": 5,
-      "name": "Findings & Severity",
-      "status": "COMPLETED",
-      "critical": 0,
-      "high": 0,
-      "medium": 0,
-      "low": 0,
-      "posture": "HARDENED_EXCELLENT"
-    }
-  ]
+function renderServiceStatus(details) {
+  const services = (details && details.services) || {};
+  const flags = {
+    LIVEKIT_API_KEY: services.LIVEKIT_API_KEY && services.LIVEKIT_API_SECRET && services.LIVEKIT_URL,
+    DEEPGRAM_API_KEY: services.DEEPGRAM_API_KEY,
+    DEEPSEEK_API_KEY: services.DEEPSEEK_API_KEY,
+    tts: Boolean(details && details.tts_provider),
+    google_sheets_configured: details && details.google_sheets_configured,
+    smtp_configured: details && details.smtp_configured,
+    n8n_configured: details && details.n8n_configured,
+  };
+  document.querySelectorAll("#servicesList .service-row").forEach(row => {
+    const key = row.dataset.service;
+    const ok = Boolean(flags[key]);
+    const dot = row.querySelector(".status-dot-lg");
+    const badge = row.querySelector(".srv-badge");
+    dot.classList.toggle("ok", ok);
+    dot.classList.toggle("warn", !ok);
+    badge.classList.toggle("ok", ok);
+    badge.classList.toggle("warn", !ok);
+    badge.textContent = ok ? "Configurado" : "No configurado";
+  });
+  if (details && details.tts_provider) {
+    setText("ttsProviderText", `Proveedor: ${details.tts_provider} · respaldo: ${details.tts_fallback || "ninguno"}`);
+  }
+  if (details && typeof details.monitors_connected === "number") setText("kpiMonitors", String(details.monitors_connected));
+  const allOk = Object.values(flags).every(Boolean);
+  const navDot = $("navStatusDot");
+  if (navDot) navDot.dataset.status = allOk ? "ok" : "standby";
+}
+
+async function refreshSystemMetrics(fetchDetails = true) {
+  if (!isLive()) {
+    setText("kpiCalls", String(state.calls.length));
+    setText("kpiLeads", String(state.leads.length));
+    setText("kpiConversion", state.calls.length ? `${Math.round((state.calls.filter(c => c.hasLead).length / state.calls.length) * 100)}%` : "—");
+    setText("kpiSavings", "—");
+    setText("kpiScope", "Datos de ejemplo (modo demo)");
+    setText("kpiLeadsSource", "Ejemplo local");
+    return;
+  }
+  try {
+    const metrics = await apiFetch("/api/system/internal");
+    setText("kpiCalls", String(metrics.llamadas_totales_atendidas));
+    setText("kpiSavings", `${metrics.dinero_ahorrado_eur.toLocaleString("es-ES")} €`);
+    setText("kpiQueue", String(metrics.leads_en_cola_sheets));
+    setText("kpiIaCost", `$${metrics.costo_ia_acumulado_usd}`);
+    setText("kpiScope", "Sesión actual del servidor");
+    const calls = metrics.llamadas_totales_atendidas;
+    setText("kpiConversion", calls ? `${Math.round((metrics.leads_convertidos / calls) * 100)}%` : "—");
+  } catch { /* se mantiene el último valor */ }
+  setText("kpiLeads", String(state.leads.length));
+  const meta = state.leadsMeta || {};
+  setText("kpiLeadsSource", meta.source === "google_sheets_live" ? "Google Sheets (en vivo)" : "Solo sesión (Sheet no disponible)");
+  if (fetchDetails) {
+    try {
+      renderServiceStatus(await apiFetch("/api/status/details"));
+    } catch { /* sin cambios */ }
+  }
+}
+
+const SECURITY_SUMMARY = {
+  fuente: "docs/SECURITY_AUDIT.md (auditoría del repositorio, rama feature/centralita-voz)",
+  autenticacion: "Token único CENTRALITA_AUTH_TOKEN en el servidor; sin credenciales en el frontend",
+  datos_personales: "Endpoints con PII autenticados; n8n recibe eventos anonimizados; consentimiento RGPD en el portal",
+  navegador: "Sin inyección de HTML (textContent), sin handlers inline, CSP estricta en Firebase Hosting",
+  integraciones: "Webhook DocuSeal con secreto compartido; WebSocket con autenticación por mensaje y control de origen",
+  pendientes_del_dueno: [
+    "Rotar la ruta del webhook n8n (expuesta en el historial git)",
+    "Configurar SMTP para que los avisos no queden en la bandeja de salida local",
+    "Ejecutar scripts/repair_sheet_phones.py --apply para las filas antiguas con #ERROR!",
+  ],
 };
 
 function openSecurityAuditModal() {
-  const container = document.getElementById("securityFindingsJsonContent");
-  if (container) {
-    container.innerText = JSON.stringify(SECURITY_FINDINGS_DATA, null, 2);
-  }
-  document.getElementById("securityAuditModal").classList.add("open");
+  $("securityFindingsJsonContent").textContent = JSON.stringify(SECURITY_SUMMARY, null, 2);
+  openModal("securityAuditModal");
 }
 
 function closeSecurityAuditModal() {
-  document.getElementById("securityAuditModal").classList.remove("open");
-}
-
-function closeSecurityAuditModalOnBackdrop(e) {
-  if (e.target.id === "securityAuditModal") {
-    closeSecurityAuditModal();
-  }
+  closeModal("securityAuditModal");
 }
 
 function downloadSecurityLedger() {
-  const blob = new Blob([JSON.stringify(SECURITY_FINDINGS_DATA, null, 2)], { type: "application/json" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "findings.json";
-  link.click();
+  downloadBlob(JSON.stringify(SECURITY_SUMMARY, null, 2), "application/json", "security-summary.json");
 }
 
+// ==============================================================================
+// 13. DELEGACIÓN DE EVENTOS E INICIALIZACIÓN
+// ==============================================================================
+
+const ACTIONS = {
+  triggerIncomingCallDemo, copyLiveTranscript, toggleVoiceInputTest, sendLiveUserText, quickSendChip,
+  toggleAudioMute, hangupActiveCall, contactViaWhatsApp, scheduleDirectMeeting, filterCalls, exportCallsReport,
+  filterLeads, switchLeadsViewMode, openDocuSealModal, exportLeadsToCRM, openDirectBookingModal, shiftCalendar,
+  openSecurityAuditModal, closeTranscriptModal, downloadTranscriptFile, closeDocuSealModal, executeDocuSealSignature,
+  sendDocuSealWhatsApp, downloadSignedContract, closeSecurityAuditModal, downloadSecurityLedger, promptOperatorToken,
+};
+
+function initEventDelegation() {
+  document.addEventListener("click", (e) => {
+    const backdrop = e.target.classList && e.target.classList.contains("modal-backdrop") ? e.target : null;
+    if (backdrop) {
+      closeModal(backdrop.id);
+      return;
+    }
+    const el = e.target.closest("[data-action]");
+    if (!el) return;
+    const fn = ACTIONS[el.dataset.action];
+    if (!fn) return;
+    e.preventDefault();
+    fn(el.dataset.arg, el);
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      document.querySelectorAll(".modal-backdrop:not([hidden])").forEach(m => closeModal(m.id));
+    }
+  });
+
+  $("liveUserTextInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendLiveUserText();
+  });
+  $("callSearchInput").addEventListener("input", searchCallsTable);
+  $("clientIdentificationForm").addEventListener("submit", handleClientIdentification);
+}
+
+function applyDataDimensions() {
+  document.querySelectorAll("[data-width]").forEach(el => { el.style.width = `${el.dataset.width}%`; });
+  document.querySelectorAll("[data-height]").forEach(el => { el.style.height = `${el.dataset.height}%`; });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  initEventDelegation();
+  initNavigation();
+  applyDataDimensions();
+  initLiveVisualizer();
+  checkSavedClientIdentity();
+  setText("currentDateDisplay", new Date().toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }));
+  bootstrapMode();
+});
