@@ -1305,7 +1305,7 @@ code { font-family: var(--font-mono); font-size: 0.86em; }
 }
 
 @media (max-width: 1280px) {
-  .live-grid, .status-panel-grid, .agenda-layout, .two-col-grid { grid-template-columns: 1fr; }
+  .live-grid, .status-panel-grid, .agenda-layout, .two-col-grid { grid-template-columns: 1fr !important; }
   .twenty-kanban-board { grid-template-columns: repeat(2, 1fr); }
   .funnel-step-row { grid-template-columns: 140px 1fr 56px; }
 }
@@ -1330,10 +1330,31 @@ code { font-family: var(--font-mono); font-size: 0.86em; }
   .lead-field-row { grid-template-columns: 1fr; }
   .card-footer-actions { flex-direction: column; }
   .btn-action-wa, .btn-action-schedule { width: 100%; }
-  .modal-card { border-radius: 14px; }
+  .modal-card { border-radius: 14px; margin: 10px; width: calc(100% - 20px); }
+  .modal-header, .modal-meta-row, .modal-body, .modal-footer { padding-left: 14px; padding-right: 14px; }
   .search-box { margin-left: 0; width: 100%; }
   .search-box input { width: 100%; }
   .search-box input:focus { width: 100%; }
+
+  /* Soporte móvil 390px (iPhone viewport) */
+  .leads-grid { grid-template-columns: 1fr; padding: var(--sp-4) 0; }
+  .lead-box-header { flex-wrap: wrap; }
+  .lead-box-footer { flex-wrap: wrap; gap: 8px; }
+  .lead-box-footer .lead-stage-select { width: 100%; min-width: 100%; }
+  .lead-box-footer > div { width: 100%; display: flex; justify-content: flex-end; gap: 6px; }
+  .hourly-bars-grid { overflow-x: auto; padding-bottom: 6px; }
+  .funnel-step-row { grid-template-columns: 100px 1fr 44px; gap: 8px; font-size: 0.72rem; }
+  .funnel-step-label { font-size: 0.72rem; }
+  .funnel-step-pct { font-size: 0.72rem; }
+  code, pre, a, p { word-break: break-word; overflow-wrap: anywhere; }
+  .view-panel { padding: 14px 10px 32px; }
+  .dual-screen-selector { flex-direction: column; align-items: stretch; gap: 8px; }
+  .dual-mode-toggles { width: 100%; display: flex; flex-wrap: wrap; }
+  .dual-mode-toggles button { flex: 1; text-align: center; justify-content: center; font-size: 0.72rem; padding: 7px 8px; }
+  .dual-live-indicator { align-self: flex-start; }
+  .stream-actions { flex-wrap: wrap; }
+  .card-header { flex-wrap: wrap; gap: 8px; }
+  .header-right { display: flex; flex-wrap: wrap; gap: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
