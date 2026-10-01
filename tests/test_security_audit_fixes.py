@@ -1,184 +1,277 @@
-"""Pruebas de verificación de seguridad para los hallazgos H-001 a H-007 (Auditoría Claude)."""
+"""Verificación de los hallazgos de seguridad H-001…H-007 y de los nuevos (H-008+).
 
-import hashlib
+Cada test reproduce el ataque concreto y comprueba que ahora falla.
+"""
+
 import json
-import os
+import re
+from pathlib import Path
+
 import pytest
-from fastapi.testclient import TestClient
 
 from agent.config import Config
-from agent.post_call import PostCallProcessor, redact_pii
-from server.app import app, ALLOWED_ROOMS, ALLOWED_EVENT_KEYS, get_authorized_tokens
+from agent.post_call import PostCallProcessor, mask_phone, redact_pii
+from tests.conftest import TEST_TOKEN
 
-client = TestClient(app)
+ROOT = Path(__file__).resolve().parent.parent
+LEAKED_TOKEN = "centralita-secure-token-2026"
 
 
-def test_h001_cors_restrictions():
-    """H-001: Verifica que CORS restrinja orígenes, desactive credenciales y limite métodos."""
-    # Probar origen permitido
-    res_allowed = client.options(
-        "/api/status",
-        headers={
-            "Origin": "https://yoyocubano.github.io",
-            "Access-Control-Request-Method": "GET",
-        },
+# ---------------------------------------------------------------- H-001 CORS
+def test_h001_cors_allows_only_listed_origins(client):
+    ok = client.options("/api/status", headers={"Origin": "https://la-centralita.web.app", "Access-Control-Request-Method": "GET"})
+    assert ok.headers.get("access-control-allow-origin") == "https://la-centralita.web.app"
+    assert ok.headers.get("access-control-allow-credentials") in (None, "false")
+
+    for evil in ("https://sitio-malicioso.com", "https://la-centralita.web.app.evil.com", "https://evil-la-centralita.web.app", "null"):
+        res = client.options("/api/status", headers={"Origin": evil, "Access-Control-Request-Method": "GET"})
+        assert res.headers.get("access-control-allow-origin") is None, evil
+
+
+def test_h001_cors_has_no_wildcard():
+    assert "*" not in Config.CORS_ALLOWED_ORIGINS
+    assert all(o.startswith(("https://", "http://localhost", "http://127.0.0.1")) for o in Config.CORS_ALLOWED_ORIGINS)
+
+
+# ------------------------------------------------- H-002 / H-003 / H-004: auth
+def test_leaked_public_token_is_rejected_everywhere(client):
+    """El token publicado en el frontend ya no da acceso a nada."""
+    headers = {"Authorization": f"Bearer {LEAKED_TOKEN}"}
+    assert client.get("/api/token?room=centralita-test", headers=headers).status_code == 403
+    assert client.get("/api/leads", headers=headers).status_code == 403
+    assert client.post("/api/call-event", json={"type": "call_started"}, headers=headers).status_code == 403
+
+
+def test_no_hardcoded_tokens_in_source():
+    for path in ["server/app.py", "panel/app.js", "panel/index.html", "index.html", "web/app.js"]:
+        assert LEAKED_TOKEN not in (ROOT / path).read_text(encoding="utf-8"), path
+
+
+def test_livekit_secret_is_not_an_api_token(client, monkeypatch):
+    monkeypatch.setattr(Config, "LIVEKIT_API_SECRET", "livekit-secret-value-0123456789")
+    res = client.get("/api/leads", headers={"Authorization": "Bearer livekit-secret-value-0123456789"})
+    assert res.status_code == 403
+
+
+def test_fail_closed_without_configured_token(client, monkeypatch):
+    monkeypatch.setattr(Config, "AUTH_TOKEN", "")
+    assert client.get("/api/leads", headers={"Authorization": "Bearer x"}).status_code == 503
+    monkeypatch.setattr(Config, "AUTH_TOKEN", "short")
+    assert client.get("/api/leads", headers={"Authorization": "Bearer short"}).status_code == 503
+
+
+def test_h002_token_endpoint_auth_and_room_restriction(client, auth_headers):
+    assert client.get("/api/token?room=centralita-test").status_code == 401
+    assert client.get("/api/token?room=centralita-test", headers={"Authorization": "Bearer token-falso"}).status_code == 403
+    bad_room = client.get("/api/token?room=sala-privada", headers=auth_headers)
+    assert bad_room.status_code == 403 and "no está autorizada" in bad_room.json()["detail"]
+    assert client.get("/api/token?room=centralita-test", headers=auth_headers).status_code in (200, 503)
+
+
+def test_h002_token_has_short_ttl(client, auth_headers, monkeypatch):
+    import base64
+    monkeypatch.setattr(Config, "LIVEKIT_API_KEY", "devkey_test_123456")
+    monkeypatch.setattr(Config, "LIVEKIT_API_SECRET", "devsecret_test_12345678901234567890")
+    res = client.get("/api/token?room=centralita-test", headers=auth_headers)
+    assert res.status_code == 200
+    body = res.json()["token"].split(".")[1]
+    claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    assert claims["exp"] - claims["nbf"] <= 3600
+    assert claims["video"]["room"] == "centralita-test"
+
+
+@pytest.mark.parametrize("path", ["/api/leads", "/api/calls", "/api/system/internal", "/api/status/details"])
+def test_pii_endpoints_require_auth(client, path):
+    assert client.get(path).status_code == 401
+
+
+def test_test_webhook_requires_auth(client):
+    assert client.post("/api/test-webhook").status_code == 401
+
+
+def test_h003_call_event_auth_and_schema(client, auth_headers):
+    assert client.post("/api/call-event", json={"type": "call_started"}).status_code == 401
+    assert client.post("/api/call-event", json={"room": "x"}, headers=auth_headers).status_code == 400
+    extra = client.post("/api/call-event", json={"type": "call_started", "evil": "<script>"}, headers=auth_headers)
+    assert extra.status_code == 400 and "claves no permitidas" in extra.json()["detail"]
+    unknown = client.post("/api/call-event", json={"type": "drop_tables"}, headers=auth_headers)
+    assert unknown.status_code == 400
+    ok = client.post("/api/call-event", json={"type": "transcript_delta", "role": "user", "text": "Hola"}, headers=auth_headers)
+    assert ok.status_code == 200 and ok.json()["status"] == "broadcasted"
+
+
+def test_h004_websocket_requires_auth_message(client):
+    from starlette.websockets import WebSocketDisconnect
+
+    # Sin mensaje de auth / token en la URL (ya no se acepta) -> 4001
+    with client.websocket_connect(f"/ws/monitor?token={TEST_TOKEN}") as ws:
+        ws.send_text(json.dumps({"action": "ping"}))
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_json()
+        assert exc.value.code == 4001
+
+    with client.websocket_connect("/ws/monitor") as ws:
+        ws.send_text(json.dumps({"action": "auth", "token": LEAKED_TOKEN}))
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_json()
+        assert exc.value.code == 4001
+
+    with client.websocket_connect("/ws/monitor") as ws:
+        ws.send_text(json.dumps({"action": "auth", "token": TEST_TOKEN}))
+        assert ws.receive_json()["type"] == "connection_established"
+        ws.send_text(json.dumps({"action": "ping"}))
+        assert ws.receive_json()["type"] == "pong"
+
+
+def test_h004_websocket_rejects_foreign_origin(client):
+    from starlette.websockets import WebSocketDisconnect
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect("/ws/monitor", headers={"Origin": "https://evil.example"}) as ws:
+            ws.receive_json()
+    assert exc.value.code == 4003
+
+
+def test_h004_websocket_receives_broadcast(client, auth_headers):
+    with client.websocket_connect("/ws/monitor") as ws:
+        ws.send_text(json.dumps({"action": "auth", "token": TEST_TOKEN}))
+        ws.receive_json()
+        client.post("/api/call-event", json={"type": "transcript_delta", "role": "assistant", "text": "Buenos días"}, headers=auth_headers)
+        msg = ws.receive_json()
+        assert msg["type"] == "transcript_delta" and msg["text"] == "Buenos días"
+
+
+# ----------------------------------------------------------------- H-005 PII
+@pytest.mark.parametrize("raw", [
+    "+352 691 452 890", "00352 691452890", "691 452 890", "+33 6 12 34 56 78", "+352 26 12 34 56", "(+352) 691-452-890",
+])
+def test_h005_redact_pii_phone_formats(raw):
+    out = redact_pii(f"Mi número es {raw}, gracias")
+    assert re.sub(r"\D", "", raw) not in re.sub(r"\D", "", out), out
+    assert "[PHONE_REDACTED]" in out
+
+
+def test_h005_redact_pii_keeps_dates_and_amounts():
+    text = "Evento el 2026-11-18 o el 18.11.2026, 150 invitados, presupuesto 2.500 €"
+    assert redact_pii(text) == text
+
+
+def test_h005_redact_pii_emails():
+    out = redact_pii("Escríbeme a carlos.mendoza@empresa.lu por favor")
+    assert "carlos.mendoza@empresa.lu" not in out and "[EMAIL_REDACTED]" in out
+
+
+def test_mask_phone_for_logs():
+    assert mask_phone("+352 691 452 890") == "***90"
+    assert "691" not in mask_phone("+352 691 452 890")
+
+
+@pytest.mark.asyncio
+async def test_h005_n8n_payload_contains_no_pii(monkeypatch):
+    processor = PostCallProcessor()
+
+    async def fake_extract(_text):
+        return {"nombre": "Carlos Mendoza", "telefono": "+352 691 000 000", "email": "c@x.lu",
+                "motivo": "Fotoespejo, llamar al +352 691 000 000", "es_lead_valido": True}
+
+    sent = {}
+
+    async def fake_send(payload):
+        sent.update(payload)
+        return True
+
+    monkeypatch.setattr(processor, "extract_lead_from_transcript", fake_extract)
+    monkeypatch.setattr(processor, "send_to_n8n", fake_send)
+    await processor.process_call_ended(
+        room_name="r", participant_id="p", duration_seconds=30,
+        transcript_history=[{"role": "user", "text": "Soy Carlos Mendoza, +352 691 000 000, c@x.lu"}],
+        simulated=True,
     )
-    assert res_allowed.headers.get("access-control-allow-origin") == "https://yoyocubano.github.io"
-    assert res_allowed.headers.get("access-control-allow-credentials") is None or res_allowed.headers.get("access-control-allow-credentials") == "false"
-
-    # Probar origen no permitido
-    res_disallowed = client.options(
-        "/api/status",
-        headers={
-            "Origin": "https://sitio-malicioso.com",
-            "Access-Control-Request-Method": "GET",
-        },
-    )
-    assert res_disallowed.headers.get("access-control-allow-origin") != "https://sitio-malicioso.com"
+    blob = json.dumps(sent, ensure_ascii=False)
+    for pii in ("Carlos Mendoza", "691 000 000", "c@x.lu"):
+        assert pii not in blob, pii
 
 
-def test_h002_token_endpoint_auth_and_room_restriction():
-    """H-002: Token endpoint exige header Authorization y restringe el ámbito de la sala."""
-    # 1. Sin Authorization header -> 401
-    res_no_auth = client.get("/api/token?room=centralita-test")
-    assert res_no_auth.status_code == 401
-    assert "Authorization requerido" in res_no_auth.json()["detail"]
-
-    # 2. Con token inválido -> 403
-    res_invalid_auth = client.get(
-        "/api/token?room=centralita-test",
-        headers={"Authorization": "Bearer token-falso-invalido"},
-    )
-    assert res_invalid_auth.status_code == 403
-
-    valid_token = list(get_authorized_tokens())[0]
-
-    # 3. Con sala no autorizada -> 403
-    res_bad_room = client.get(
-        "/api/token?room=sala-privada-welux-vip",
-        headers={"Authorization": f"Bearer {valid_token}"},
-    )
-    assert res_bad_room.status_code == 403
-    assert "no está autorizada" in res_bad_room.json()["detail"]
-
-    # 4. Con sala autorizada (centralita-test)
-    res_valid_room = client.get(
-        "/api/token?room=centralita-test",
-        headers={"Authorization": f"Bearer {valid_token}"},
-    )
-    # Puede ser 200 (si hay livekit keys) o 503 (si no hay keys configuradas), pero nunca 401 ni 403
-    assert res_valid_room.status_code in (200, 503)
+# ----------------------------------------------------- H-006 secretos/URLs
+def test_h006_real_webhook_url_not_in_repo():
+    offenders = []
+    for path in ROOT.rglob("*"):
+        if ".git" in path.parts or path.suffix not in {".py", ".js", ".html", ".md", ".json", ".example", ".css"}:
+            continue
+        if path.name == "test_security_audit_fixes.py":
+            continue
+        if "weluxdigitalservices.app.n8n.cloud" in path.read_text(encoding="utf-8", errors="ignore"):
+            offenders.append(str(path.relative_to(ROOT)))
+    assert offenders == []
 
 
-def test_h003_call_event_endpoint_auth_and_schema_validation():
-    """H-003: POST /api/call-event exige auth y valida claves con whitelist estricta."""
-    valid_token = list(get_authorized_tokens())[0]
-
-    # 1. Sin autenticación -> 401
-    res_no_auth = client.post("/api/call-event", json={"type": "ping"})
-    assert res_no_auth.status_code == 401
-
-    # 2. Con autenticación pero sin campo 'type' -> 400
-    res_no_type = client.post(
-        "/api/call-event",
-        json={"room": "centralita-test"},
-        headers={"Authorization": f"Bearer {valid_token}"},
-    )
-    assert res_no_type.status_code == 400
-    assert "type" in res_no_type.json()["detail"]
-
-    # 3. Con claves maliciosas o no permitidas (intento de inyección) -> 400
-    res_extra_keys = client.post(
-        "/api/call-event",
-        json={
-            "type": "call_started",
-            "room": "centralita-test",
-            "malicious_extra_payload": "<script>alert('xss')</script>",
-        },
-        headers={"Authorization": f"Bearer {valid_token}"},
-    )
-    assert res_extra_keys.status_code == 400
-    assert "claves no permitidas" in res_extra_keys.json()["detail"]
-
-    # 4. Con payload legítimo y claves autorizadas -> 200
-    res_ok = client.post(
-        "/api/call-event",
-        json={
-            "type": "call_started",
-            "room": "centralita-test",
-            "status": "active",
-        },
-        headers={"Authorization": f"Bearer {valid_token}"},
-    )
-    assert res_ok.status_code == 200
-    assert res_ok.json()["status"] == "broadcasted"
-
-
-def test_h004_websocket_monitor_auth():
-    """H-004: WebSocket /ws/monitor rechaza conexiones sin token o con token inválido con código 4001."""
-    # 1. Conexión sin token
-    with pytest.raises(Exception):
-        with client.websocket_connect("/ws/monitor") as ws:
-            pass
-
-    # 2. Conexión con token inválido
-    with pytest.raises(Exception):
-        with client.websocket_connect("/ws/monitor?token=token-invalido") as ws:
-            pass
-
-    # 3. Conexión con token válido
-    valid_token = list(get_authorized_tokens())[0]
-    with client.websocket_connect(f"/ws/monitor?token={valid_token}") as ws:
-        # Recibir mensaje de bienvenida
-        initial_msg = ws.receive_json()
-        assert initial_msg["type"] == "connection_established"
-
-
-def test_h005_redact_pii_and_lead_hash():
-    """H-005: Anonimización de datos personales (PII) en transcripciones y generación de lead_hash."""
-    sample_raw = (
-        "Hola, me llamo Carlos y mi teléfono es +352 691 452 890. "
-        "También puedes escribirme a carlos.mendoza@empresa.lu para coordinar."
-    )
-    redacted = redact_pii(sample_raw)
-
-    assert "+352 691 452 890" not in redacted
-    assert "carlos.mendoza@empresa.lu" not in redacted
-    assert "[PHONE_REDACTED]" in redacted
-    assert "[EMAIL_REDACTED]" in redacted
-
-    # Lead hash debe ser determinista
-    lead_sample = {"name": "Carlos", "phone": "+352 691 452 890"}
-    lead_json = json.dumps(lead_sample, sort_keys=True, ensure_ascii=False)
-    lead_hash = hashlib.sha256(lead_json.encode("utf-8")).hexdigest()
-    assert len(lead_hash) == 64
-
-
-def test_h006_no_real_webhook_url_in_example_files():
-    """H-006: Verifica que las plantillas de entorno no contengan la URL real del webhook de n8n."""
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    env_example = os.path.join(root_dir, ".env.example")
-    agent_env_example = os.path.join(root_dir, "agent", ".env.example")
-
-    for path in [env_example, agent_env_example]:
-        assert os.path.exists(path), f"{path} debe existir"
-        with open(path, "r", encoding="utf-8") as f:
-            content = f.read()
-        assert "weluxdigitalservices.app.n8n.cloud" not in content, (
-            f"El archivo {path} contiene la URL real del webhook expuesta"
-        )
+def test_h006_env_examples_use_placeholders():
+    for rel in (".env.example", "agent/.env.example"):
+        content = (ROOT / rel).read_text(encoding="utf-8")
         assert "tu-instancia-n8n.com" in content
 
 
-def test_h007_panel_app_xss_protection():
-    """H-007: Verifica que panel/app.js no contenga interpolación dinámica no segura en innerHTML."""
-    panel_js = os.path.join(os.path.dirname(__file__), "..", "panel", "app.js")
-    with open(panel_js, "r", encoding="utf-8") as f:
-        lines = f.readlines()
+# ------------------------------------------------------------------ H-007 XSS
+def _strip_js_comments(src: str) -> str:
+    return re.sub(r"//[^\n]*", "", src)
 
-    # Cada asignación a innerHTML debe ser estrictamente vacía ("") para limpieza
-    for i, line in enumerate(lines, 1):
-        if "innerHTML" in line and not line.strip().startswith("//"):
-            assert line.strip().endswith('innerHTML = "";') or line.strip().endswith("innerHTML = '';"), (
-                f"Línea {i} contiene asignación a innerHTML potencialmente peligrosa: {line.strip()}"
-            )
+
+@pytest.mark.parametrize("rel", ["panel/app.js", "web/app.js"])
+def test_h007_no_dynamic_html_sinks(rel):
+    src = _strip_js_comments((ROOT / rel).read_text(encoding="utf-8"))
+    for m in re.finditer(r"\.(innerHTML|outerHTML)\s*[+]?=\s*([^;\n]+)", src):
+        assert m.group(2).strip() in ('""', "''"), f"{rel}: {m.group(0)}"
+    assert "insertAdjacentHTML" not in src and "document.write" not in src
+    assert not re.search(r"\beval\s*\(|new Function\s*\(", src)
+
+
+def test_h007_index_inline_handlers_have_no_data_interpolation():
+    html = (ROOT / "panel/index.html").read_text(encoding="utf-8")
+    assert "${" not in html
+
+
+# ------------------------------------------------------------- DocuSeal (H-010)
+def test_docuseal_webhook_rejects_unsigned(client):
+    payload = {"event_type": "submission.completed", "data": {"id": 99}}
+    assert client.post("/api/docuseal/webhook", json=payload).status_code == 401
+    assert client.post("/api/docuseal/webhook", json=payload, headers={"X-Docuseal-Secret": "wrong"}).status_code == 401
+
+
+def test_docuseal_webhook_accepts_signed(client):
+    res = client.post(
+        "/api/docuseal/webhook",
+        json={"event_type": "submission.completed", "data": {"id": 99}},
+        headers={"X-Docuseal-Secret": "docuseal-test-secret"},
+    )
+    assert res.status_code == 200 and res.json()["docuseal_status"] == "FIRMADO"
+
+
+def test_docuseal_webhook_fail_closed_without_secret(client, monkeypatch):
+    monkeypatch.setattr(Config, "DOCUSEAL_WEBHOOK_SECRET", "")
+    res = client.post("/api/docuseal/webhook", json={"event_type": "submission.completed"}, headers={"X-Docuseal-Secret": ""})
+    assert res.status_code == 503
+
+
+# ----------------------------------------------------------- demo pública
+def test_public_demo_token_disabled_by_default(client):
+    assert client.post("/api/public/demo-token").status_code == 404
+
+
+def test_public_demo_token_rate_limited(client, monkeypatch):
+    monkeypatch.setattr(Config, "PUBLIC_DEMO_ENABLED", True)
+    monkeypatch.setattr(Config, "LIVEKIT_API_KEY", "devkey_test_123456")
+    monkeypatch.setattr(Config, "LIVEKIT_API_SECRET", "devsecret_test_12345678901234567890")
+    codes = [client.post("/api/public/demo-token").status_code for _ in range(4)]
+    assert codes == [200, 200, 200, 429]
+    assert client.post("/api/public/demo-token").status_code == 429
+
+
+def test_status_does_not_leak_configuration(client, monkeypatch):
+    monkeypatch.setattr(Config, "N8N_WEBHOOK_URL", "https://n8n.example/webhook/secret-path")
+    body = client.get("/api/status").text
+    assert "secret-path" not in body and "livekit" not in body.lower()
+
+
+def test_h005_known_names_are_redacted():
+    out = redact_pii("Cliente: Soy Carlos Mendoza. Sofía: Gracias, carlos.", ["Carlos Mendoza"])
+    assert "Carlos" not in out and "carlos" not in out and "Mendoza" not in out
+    assert "Sofía" in out
