@@ -1,8 +1,17 @@
-# La Centralita — dependencias del agente (Fase 1, prueba $0)
-livekit-agents
-livekit-plugins-deepgram
-livekit-plugins-openai
-livekit-plugins-silero
-livekit-api
-python-dotenv
-piper-tts
+livekit-agents>=1.8.0
+livekit-plugins-deepgram>=1.8.0
+livekit-plugins-openai>=1.8.0
+livekit-plugins-silero>=1.8.0
+livekit-api>=1.0.0
+piper-tts>=1.3.0
+soundfile>=0.12
+python-dotenv>=1.0.0
+aiohttp>=3.9.0
+openai>=1.40.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.0.0
+google-auth>=2.30.0
+requests>=2.31.0
+# Opcional (upgrade de voz): livekit-plugins-elevenlabs>=1.8.0
+# Tests: pytest>=8 pytest-asyncio>=0.23 httpx>=0.27
