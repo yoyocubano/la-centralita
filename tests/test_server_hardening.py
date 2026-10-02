@@ -138,86 +138,55 @@ def test_appointments_endpoint_reads_agent_requests(client, auth_headers, tmp_pa
     assert [a["id"] for a in body["appointments"]] == ["2", "1"]
 
 
-def test_call_transfer_and_hangup_endpoints(client, auth_headers):
-    """Verifica endpoints de transferencia y finalización de llamada."""
-    # 1. Transferencia
-    transfer_res = client.post(
-        "/api/call/transfer",
-        headers=auth_headers,
-        json={
-            "room": "centralita-test",
-            "target_operator": "Marc Becker (Supervisor)",
-            "target_phone": "+352 691 334 221",
-            "reason": "Escalado técnico"
-        }
-    )
-    assert transfer_res.status_code == 200
-    assert transfer_res.json()["status"] == "transferred"
-    assert transfer_res.json()["target_operator"] == "Marc Becker (Supervisor)"
+def test_call_transfer_is_reported_as_request_not_fake_success(client, auth_headers):
+    assert client.post("/api/call/transfer", json={"target_operator": "Supervisor"}).status_code == 401
+    res = client.post("/api/call/transfer", headers=auth_headers,
+                      json={"room": "centralita-test", "target_operator": "Supervisor", "target_phone": "+352 691 334 221"})
+    assert res.status_code == 200 and res.json()["status"] == "transfer_requested"
 
-    # 2. Finalización
-    hangup_res = client.post(
-        "/api/call/hangup",
-        headers=auth_headers,
-        json={"room": "centralita-test", "reason": "Terminada por operador"}
-    )
-    assert hangup_res.status_code == 200
-    assert hangup_res.json()["status"] == "terminated"
+
+def test_hangup_fails_honestly_without_livekit(client, auth_headers):
+    assert client.post("/api/call/hangup", headers=auth_headers, json={"room": "sala-ajena"}).status_code == 403
+    res = client.post("/api/call/hangup", headers=auth_headers, json={"room": "centralita-test"})
+    assert res.status_code == 503  # nunca "terminated" sin cerrar la sala de verdad
+
+
+def test_update_lead_rejects_bad_stage_and_fake_amounts(client, auth_headers):
+    assert client.post("/api/call/update-lead", headers=auth_headers, json={"stage": "borrado"}).status_code == 422
+    body = client.post("/api/call/update-lead", headers=auth_headers, json={"nombre": "Ana"}).json()
+    assert "valor_eur" not in body["lead"]
 
 
 def test_auth_verify_endpoint(client):
-    """Verifica endpoint de autenticación real contra token autorizado."""
     from tests.conftest import TEST_TOKEN
-    res_ok = client.post("/api/auth/verify", json={"token": TEST_TOKEN})
-    assert res_ok.status_code == 200
-    assert res_ok.json()["authenticated"] is True
-
-    res_fail = client.post("/api/auth/verify", json={"token": "token-invalido-123"})
-    assert res_fail.status_code == 401
+    assert client.post("/api/auth/verify", json={"token": TEST_TOKEN}).json()["authenticated"] is True
+    assert client.post("/api/auth/verify", json={"token": "token-invalido-123"}).status_code == 401
 
 
-def test_ycloud_whatsapp_webhook_verification_and_event(client):
-    """Verifica handshake y recepción de mensajes/notas de voz de YCloud WhatsApp Business API."""
-    # 1. Challenge verification
-    verify_res = client.get(
-        "/api/whatsapp/webhook?hub.mode=subscribe&hub.challenge=test_challenge_1234&hub.verify_token=welux-centralita-whatsapp-2026"
-    )
-    assert verify_res.status_code == 200
-    assert verify_res.text == "test_challenge_1234"
+def test_auth_verify_is_rate_limited(client):
+    codes = [client.post("/api/auth/verify", json={"token": f"x{i}"}).status_code for i in range(11)]
+    assert codes[:10] == [401] * 10 and codes[10] == 429
 
-    # 2. Inbound text message
-    inbound_res = client.post(
-        "/api/whatsapp/webhook",
-        json={
-            "id": "evt_wa_101",
-            "type": "whatsapp.inbound_message",
-            "whatsappMessage": {
-                "id": "wamid_123",
-                "from": "+352691452890",
-                "to": "+352621999888",
-                "type": "text",
-                "text": {"body": "Hola, necesito información de fotoespejo"},
-            }
-        }
-    )
-    assert inbound_res.status_code == 200
-    assert inbound_res.json()["status"] == "received"
-    assert inbound_res.json()["sender"] == "+352691452890"
 
-    # 3. Inbound voice note
-    voice_res = client.post(
-        "/api/whatsapp/webhook",
-        json={
-            "id": "evt_wa_102",
-            "type": "whatsapp.inbound_message",
-            "whatsappMessage": {
-                "id": "wamid_124",
-                "from": "+352691452890",
-                "to": "+352621999888",
-                "type": "audio",
-                "audio": {"id": "media_voice_001", "link": "https://api.ycloud.com/v2/media/1"},
-            }
-        }
-    )
-    assert voice_res.status_code == 200
-    assert voice_res.json()["is_voice"] is True
+def _signed(secret, body: bytes):
+    import hashlib, hmac
+    return {"X-Hub-Signature-256": "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest(),
+            "Content-Type": "application/json"}
+
+
+def test_whatsapp_webhook_requires_config_and_signature(client, monkeypatch):
+    import json
+    from agent.config import Config
+    # Sin token configurado: el antiguo valor por defecto público ya no verifica nada
+    res = client.get("/api/whatsapp/webhook?hub.mode=subscribe&hub.challenge=c&hub.verify_token=welux-centralita-whatsapp-2026")
+    assert res.status_code == 503
+    monkeypatch.setattr(Config, "WHATSAPP_VERIFY_TOKEN", "verify-test")
+    monkeypatch.setattr(Config, "WHATSAPP_WEBHOOK_SECRET", "wa-secret")
+    assert client.get("/api/whatsapp/webhook?hub.mode=subscribe&hub.challenge=c123&hub.verify_token=verify-test").text == "c123"
+
+    body = json.dumps({"type": "whatsapp.inbound_message", "whatsappMessage": {
+        "from": "+352691452890", "type": "audio", "audio": {"link": "https://api.ycloud.com/v2/media/1"}}}).encode()
+    assert client.post("/api/whatsapp/webhook", content=body, headers={"Content-Type": "application/json"}).status_code == 401
+    assert client.post("/api/whatsapp/webhook", content=body, headers=_signed("otro", body)).status_code == 401
+    ok = client.post("/api/whatsapp/webhook", content=body, headers=_signed("wa-secret", body))
+    assert ok.status_code == 200 and ok.json()["is_voice"] is True

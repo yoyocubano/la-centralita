@@ -34,8 +34,14 @@ async function autoFetchToken() {
   if (tokenInput.value.trim() && urlInput.value.trim()) return;
   try {
     log("Obteniendo credenciales WebRTC seguras desde /api/token...");
+    let op = sessionStorage.getItem('centralita_operator_token') || '';
+    if (!op) {
+      op = (prompt('Token de operador (CENTRALITA_AUTH_TOKEN):') || '').trim();
+      if (!op) throw new Error('sin token de operador');
+      sessionStorage.setItem('centralita_operator_token', op);
+    }
     const res = await fetch('/api/token?room=centralita-test', {
-      headers: { 'Authorization': 'Bearer centralita-secure-token-2026' }
+      headers: { 'Authorization': 'Bearer ' + op }
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();

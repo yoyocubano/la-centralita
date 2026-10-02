@@ -105,6 +105,10 @@ class Config:
     PUBLIC_DEMO_ENABLED = _env_bool("PUBLIC_DEMO_ENABLED", False)
     PUBLIC_DEMO_ROOM = os.getenv("PUBLIC_DEMO_ROOM", "centralita-demo")
 
+    # WhatsApp (YCloud / Meta): token de verificación y secreto de firma del webhook.
+    WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+    WHATSAPP_WEBHOOK_SECRET = os.getenv("WHATSAPP_WEBHOOK_SECRET", "")
+
     # URL del backend que usa el worker de voz para emitir eventos al panel en vivo.
     CENTRALITA_API_URL = os.getenv("CENTRALITA_API_URL", "")
 
@@ -117,7 +121,6 @@ class Config:
 
     # WhatsApp Business API (YCloud BSP)
     YCLOUD_API_KEY = os.getenv("YCLOUD_API_KEY", "")
-    WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "welux-centralita-whatsapp-2026")
 
     @classmethod
     def validate(cls, raise_on_missing=False) -> dict[str, bool]:

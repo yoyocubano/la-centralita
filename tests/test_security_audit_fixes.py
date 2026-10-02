@@ -43,8 +43,9 @@ def test_leaked_public_token_is_rejected_everywhere(client):
 
 
 def test_no_hardcoded_tokens_in_source():
-    for path in ["server/app.py", "panel/app.js", "panel/index.html", "index.html", "web/app.js"]:
-        assert LEAKED_TOKEN not in (ROOT / path).read_text(encoding="utf-8"), path
+    for path in ["server/app.py", "agent/config.py", "panel/app.js", "panel/index.html", "index.html", "web/app.js", "web/test-page.html"]:
+        src = (ROOT / path).read_text(encoding="utf-8")
+        assert LEAKED_TOKEN not in src and "welux-centralita-whatsapp-2026" not in src, path
 
 
 def test_livekit_secret_is_not_an_api_token(client, monkeypatch):

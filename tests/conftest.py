@@ -30,6 +30,7 @@ def isolated_env(tmp_path, monkeypatch):
 
     from server import app as server_app
     server_app.identify_limiter.reset()
+    server_app.auth_verify_limiter.reset()
     server_app.demo_token_limiter.reset()
     server_app.CALLS_DATABASE.clear()
     server_app.LEADS_DATABASE.clear()

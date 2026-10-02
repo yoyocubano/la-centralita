@@ -17,6 +17,7 @@ configurado, todos los endpoints protegidos responden 503 (fail-closed).
 """
 
 import asyncio
+import hashlib
 import hmac
 import json
 import logging
@@ -343,18 +344,24 @@ class SlidingWindowRateLimiter:
 
 
 identify_limiter = SlidingWindowRateLimiter(max_requests=5, window_seconds=600)
+auth_verify_limiter = SlidingWindowRateLimiter(max_requests=10, window_seconds=600)
 demo_token_limiter = SlidingWindowRateLimiter(max_requests=3, window_seconds=600)
 
 
 def client_key(request: Request) -> str:
     if Config.SERVERLESS:
-        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        # Vercel fija x-real-ip; en x-forwarded-for la entrada fiable es la ÚLTIMA
+        # (la añade el proxy). La primera la controla el cliente: no sirve para rate-limit.
+        real_ip = request.headers.get("x-real-ip", "").strip()
+        if real_ip:
+            return real_ip
+        forwarded = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
         if forwarded:
-            return forwarded
+            return forwarded[-1]
     return request.client.host if request.client else "unknown"
 
 
-CALLS_FILE = PROJECT_ROOT / "data" / "calls_history.json"
+CALLS_FILE = DATA_DIR / "calls_history.json"
 
 
 def load_calls_history() -> List[dict]:
@@ -938,7 +945,7 @@ class CallTransferRequest(BaseModel):
     call_id: Optional[str] = Field(default="", max_length=50)
     room: str = Field(default="centralita-test", max_length=50)
     target_operator: str = Field(..., min_length=2, max_length=100)
-    target_phone: Optional[str] = Field(default="+352 691 000 000", max_length=30)
+    target_phone: Optional[str] = Field(default=None, max_length=30)
     reason: Optional[str] = Field(default="Escalado a operador humano", max_length=200)
 
 
@@ -946,12 +953,13 @@ class CallTransferRequest(BaseModel):
 async def transfer_call_endpoint(payload: CallTransferRequest, authorization: str | None = Header(None)):
     """Transfiere una llamada en vivo a un operador o departamento humano real (H-002 protegido)."""
     verify_auth_header(authorization)
+    # Sin integración SIP aún: se registra y difunde la SOLICITUD; no se finge una transferencia.
     logger.info(
-        f"Llamada transferida a {payload.target_operator} ({payload.target_phone}): {payload.reason}",
-        extra={"extra_data": {"action": "call_transfer", "payload": payload.model_dump()}},
+        "Solicitud de transferencia de llamada",
+        extra={"extra_data": {"action": "call_transfer_requested", "room": payload.room, "phone": mask_phone(payload.target_phone)}},
     )
     await monitor_hub.broadcast({
-        "type": "call_transferred",
+        "type": "call_transfer_requested",
         "room": payload.room,
         "call_id": payload.call_id,
         "target_operator": payload.target_operator,
@@ -960,7 +968,8 @@ async def transfer_call_endpoint(payload: CallTransferRequest, authorization: st
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
     return {
-        "status": "transferred",
+        "status": "transfer_requested",
+        "note": "Transferencia SIP no implementada: un operador debe devolver la llamada manualmente.",
         "room": payload.room,
         "target_operator": payload.target_operator,
         "target_phone": payload.target_phone,
@@ -977,7 +986,21 @@ class CallHangupRequest(BaseModel):
 async def hangup_call_endpoint(payload: CallHangupRequest, authorization: str | None = Header(None)):
     """Finaliza y cuelga de forma segura una llamada activa desde el panel."""
     verify_auth_header(authorization)
-    logger.info(f"Llamada colgada en sala {payload.room} por razón: {payload.reason}")
+    if payload.room not in ALLOWED_ROOMS:
+        raise HTTPException(status_code=403, detail="Sala no autorizada")
+    terminated = False
+    if Config.LIVEKIT_API_KEY and Config.LIVEKIT_API_SECRET and Config.LIVEKIT_URL:
+        lk = api.LiveKitAPI(Config.LIVEKIT_URL.replace("wss://", "https://"), Config.LIVEKIT_API_KEY, Config.LIVEKIT_API_SECRET)
+        try:
+            await lk.room.delete_room(api.DeleteRoomRequest(room=payload.room))
+            terminated = True
+        except Exception as exc:
+            logger.warning("No se pudo cerrar la sala LiveKit", extra={"extra_data": {"error": type(exc).__name__}})
+        finally:
+            await lk.aclose()
+    if not terminated:
+        raise HTTPException(status_code=503, detail="No se pudo colgar: LiveKit no configurado o no responde.")
+    logger.info("Llamada colgada desde el panel", extra={"extra_data": {"room": payload.room}})
     await monitor_hub.broadcast({
         "type": "call_ended",
         "room": payload.room,
@@ -996,8 +1019,8 @@ class CallUpdateLeadRequest(BaseModel):
     motivo: Optional[str] = Field(default=None, max_length=150)
     detalles: Optional[str] = Field(default=None, max_length=1000)
     notas_operador: Optional[str] = Field(default=None, max_length=1000)
-    valor_eur: Optional[str] = Field(default="2.500 €", max_length=50)
-    stage: Optional[str] = Field(default="nuevo", max_length=50)
+    valor_eur: Optional[str] = Field(default=None, max_length=50)
+    stage: Optional[str] = Field(default=None, pattern=r"^(nuevo|contactado|agendado|ganado)$")
 
 
 @app.post("/api/call/update-lead", tags=["Control en Vivo"])
@@ -1006,17 +1029,21 @@ async def update_lead_live_endpoint(payload: CallUpdateLeadRequest, authorizatio
     verify_auth_header(authorization)
     data = {k: v for k, v in payload.model_dump().items() if v is not None}
     
-    # Sincronización inmediata con Google Sheets si contiene datos mínimos
-    if payload.nombre or payload.telefono:
-        sheets_sync = GoogleSheetsSync()
-        await sheets_sync.sync_lead(data)
+    # Lead existente: solo se actualiza la etapa (no se añaden filas por cada edición).
+    # Lead nuevo: se escribe una vez con ID estable (idempotente).
+    sheets_status = "skipped"
+    sheets_sync = GoogleSheetsSync()
+    if payload.lead_id and payload.stage:
+        sheets_status = await sheets_sync.update_stage(payload.lead_id, payload.stage)
+    elif not payload.lead_id and (payload.nombre or payload.telefono):
+        sheets_status = (await sheets_sync.sync_lead(data)).get("status", "error")
 
     await monitor_hub.broadcast({
         "type": "lead_updated_live",
         "lead": data,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
-    return {"status": "ok", "lead": data}
+    return {"status": "ok", "sheets_status": sheets_status, "lead": data}
 
 
 class AuthVerifyRequest(BaseModel):
@@ -1024,12 +1051,35 @@ class AuthVerifyRequest(BaseModel):
 
 
 @app.post("/api/auth/verify", tags=["Seguridad"])
-async def auth_verify_endpoint(payload: AuthVerifyRequest):
-    """Verifica credenciales del operador/administrador contra tokens autorizados (cero login decorativo)."""
-    valid_tokens = get_authorized_tokens()
-    if payload.token in valid_tokens:
+async def auth_verify_endpoint(payload: AuthVerifyRequest, request: Request):
+    """Verifica el token del operador (tiempo constante, máx. 10 intentos / 10 min por IP)."""
+    if not auth_verify_limiter.allow(client_key(request)):
+        raise HTTPException(status_code=429, detail="Demasiados intentos. Inténtelo más tarde.")
+    if is_valid_token(payload.token):
         return {"authenticated": True, "role": "operator", "timestamp": datetime.now(timezone.utc).isoformat()}
     raise HTTPException(status_code=401, detail="Token de acceso no válido")
+
+
+def verify_whatsapp_signature(raw: bytes, headers) -> bool:
+    """Firma HMAC-SHA256 del webhook: Meta (X-Hub-Signature-256: sha256=<hex>) o
+    YCloud (YCloud-Signature: t=<ts>,s=<hex> sobre "<ts>.<body>"). Fail-closed sin secreto."""
+    secret = Config.WHATSAPP_WEBHOOK_SECRET
+    if not secret:
+        return False
+    key = secret.encode()
+    meta = headers.get("x-hub-signature-256", "")
+    if meta.startswith("sha256="):
+        expected = hmac.new(key, raw, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(meta[7:], expected)
+    ycloud = headers.get("ycloud-signature", "")
+    if ycloud:
+        parts = dict(p.split("=", 1) for p in ycloud.split(",") if "=" in p)
+        ts, sig = parts.get("t", ""), parts.get("s", "")
+        if not ts.isdigit() or abs(time.time() - int(ts)) > 300:
+            return False
+        expected = hmac.new(key, f"{ts}.".encode() + raw, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(sig, expected)
+    return False
 
 
 @app.get("/api/whatsapp/webhook", tags=["WhatsApp & YCloud"])
@@ -1040,8 +1090,10 @@ async def whatsapp_webhook_verification(
     hub_verify_token: Optional[str] = Query(None, alias="hub.verify_token"),
 ):
     """Verificación de suscripción para webhook de YCloud / Meta WhatsApp Business API."""
-    expected_token = getattr(Config, "WHATSAPP_VERIFY_TOKEN", "welux-centralita-whatsapp-2026")
-    if hub_mode == "subscribe" and hub_verify_token == expected_token:
+    expected_token = Config.WHATSAPP_VERIFY_TOKEN
+    if not expected_token:
+        raise HTTPException(status_code=503, detail="Webhook WhatsApp no configurado (WHATSAPP_VERIFY_TOKEN).")
+    if hub_mode == "subscribe" and hub_verify_token and hmac.compare_digest(hub_verify_token.encode(), expected_token.encode()):
         logger.info("Webhook de WhatsApp verificado con éxito por challenge")
         return Response(content=hub_challenge or "OK", media_type="text/plain")
     return {
@@ -1054,12 +1106,18 @@ async def whatsapp_webhook_verification(
 @app.post("/api/whatsapp/webhook", tags=["WhatsApp & YCloud"])
 async def whatsapp_webhook_handler(request: Request):
     """Manejo de eventos entrantes de WhatsApp vía YCloud: mensajes de texto, notas de voz y estado de entrega."""
+    raw = await request.body()
+    if not verify_whatsapp_signature(raw, request.headers):
+        logger.warning("Webhook WhatsApp rechazado", extra={"extra_data": {"security_event": "whatsapp_bad_signature"}})
+        raise HTTPException(status_code=401, detail="Firma del webhook inválida")
     try:
-        body = await request.json()
+        body = json.loads(raw)
     except Exception:
         raise HTTPException(status_code=400, detail="Formato JSON no válido")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Formato JSON no válido")
 
-    logger.info("Payload recibido en Webhook de WhatsApp YCloud", extra={"extra_data": {"event_data": body}})
+    logger.info("Evento WhatsApp recibido", extra={"extra_data": {"event_type": body.get("type", "meta")}})
 
     # Soporte para formato nativo YCloud y formato estándar Meta
     event_type = body.get("type") or "whatsapp.event"
