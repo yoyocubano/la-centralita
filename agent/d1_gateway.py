@@ -50,6 +50,8 @@ class D1Gateway:
                 "Authorization": f"Bearer {self.secret}",
                 "X-Tenant-Id": self.tenant,
                 "Content-Type": "application/json",
+                # Cloudflare bloquea (403, error 1010) el User-Agent por defecto "Python-urllib".
+                "User-Agent": "la-centralita-backend/1.0",
             },
         )
         try:

@@ -3,6 +3,7 @@
 # Secreto:     npx wrangler secret put GATEWAY_SECRET
 name = "la-centralita-d1-gateway"
 main = "src/index.js"
+preview_urls = false
 compatibility_date = "2026-09-01"
 workers_dev = true
 

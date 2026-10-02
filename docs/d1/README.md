@@ -24,7 +24,11 @@ FastAPI (Vercel) / worker de voz ──HTTPS, Bearer GATEWAY_SECRET + X-Tenant-I
 | Rate-limits (identify, auth, demo) | compartidos entre instancias | limitador en memoria |
 | Agente `book_technical_meeting` | además del `.jsonl` local | queda en el `.jsonl` |
 
-## Despliegue (pendiente del dueño)
+## Despliegue
+
+**Desplegado 2026-10-02:** `https://la-centralita-d1-gateway.yucolaguilar.workers.dev` (sin auth → 401; `/v1/health` → `db:true`). Preview URLs desactivadas. Migraciones registradas en `d1_migrations`. Pendiente: `D1_GATEWAY_URL` / `D1_GATEWAY_SECRET` en Vercel y en el worker de voz.
+
+Para redesplegar:
 
 Requiere un token de Cloudflare con **Workers Scripts:Edit + D1:Edit** (el token actual es solo D1 y no puede desplegar Workers).
 
@@ -49,4 +53,5 @@ npm run migrate:local && npm run dev                         # http://127.0.0.1:
 
 ## Historial de acceso
 - Token 1: sin D1 (revocado). Token 2: D1 solo lectura. Token 3: sin D1. → **revocar 2 y 3**.
+- Token 5: Workers Scripts:Edit + D1:Edit (desplegó el Worker) → revocar o rotar tras el despliegue si no se usará en CI.
 - Token 4: restringido a D1 (lectura/escritura). Con él / el conector se creó la base y se aplicaron las migraciones.
