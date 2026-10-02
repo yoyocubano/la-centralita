@@ -1,0 +1,14 @@
+{
+  "name": "la-centralita-d1-gateway",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8787",
+    "migrate:local": "wrangler d1 migrations apply la-centralita-db --local",
+    "migrate:remote": "wrangler d1 migrations apply la-centralita-db --remote",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

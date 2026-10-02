@@ -1,4 +1,5 @@
 -- La Centralita — esquema D1 (SQLite) propuesto · 2026-10-02
+-- Idempotente (IF NOT EXISTS): la base remota ya se creó con este esquema el 2026-10-02.
 -- Base dedicada: la-centralita-db, ubicación EU (weur) por RGPD.
 -- NO reutilizar welux-events-db (pertenece al chatbot Rebeca AI; regla del HANDSHAKE).
 -- Sustituye el estado efímero actual: deques en memoria del servidor (calls, leads,
@@ -6,10 +7,9 @@
 -- Vercel/serverless se pierden entre instancias.
 -- tenant_id: la centralita es un producto B2B; cada cliente (empresa) es un tenant.
 
-PRAGMA foreign_keys = ON;
 
 -- Leads: registro maestro (hoy Google Sheets "Leads", que pasa a ser una vista exportada).
-CREATE TABLE leads (
+CREATE TABLE IF NOT EXISTS leads (
   id                TEXT PRIMARY KEY,               -- hash determinista (GoogleSheetsSync.generate_lead_id)
   tenant_id         TEXT NOT NULL,
   created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -31,12 +31,12 @@ CREATE TABLE leads (
   sheets_synced_at  TEXT,                           -- exportación a Google Sheets (si se mantiene)
   erased_at         TEXT                            -- supresión RGPD: PII anulada, fila conservada para métricas
 );
-CREATE INDEX idx_leads_tenant_created ON leads (tenant_id, created_at DESC);
-CREATE INDEX idx_leads_tenant_stage   ON leads (tenant_id, stage);
-CREATE UNIQUE INDEX uq_leads_tenant_phone_email ON leads (tenant_id, telefono, email) WHERE erased_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_leads_tenant_created ON leads (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_leads_tenant_stage   ON leads (tenant_id, stage);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_leads_tenant_phone_email ON leads (tenant_id, telefono, email) WHERE erased_at IS NULL;
 
 -- Llamadas atendidas por Sofía.
-CREATE TABLE calls (
+CREATE TABLE IF NOT EXISTS calls (
   id                TEXT PRIMARY KEY,               -- call-<uuid> (MonitorEmitter.call_id)
   tenant_id         TEXT NOT NULL,
   room              TEXT NOT NULL,
@@ -49,10 +49,10 @@ CREATE TABLE calls (
   cost_usd          REAL,
   n8n_delivered     INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_calls_tenant_started ON calls (tenant_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_calls_tenant_started ON calls (tenant_id, started_at DESC);
 
 -- Turnos de la transcripción (permite reconstruir el panel en vivo vía polling).
-CREATE TABLE call_turns (
+CREATE TABLE IF NOT EXISTS call_turns (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
   call_id   TEXT NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
   seq       INTEGER NOT NULL,
@@ -63,17 +63,17 @@ CREATE TABLE call_turns (
 );
 
 -- Bus de eventos para el panel (sustituye EVENT_LOG en memoria; GET /api/events?after=<id>).
-CREATE TABLE monitor_events (
+CREATE TABLE IF NOT EXISTS monitor_events (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   tenant_id  TEXT NOT NULL,
   type       TEXT NOT NULL,
   payload    TEXT NOT NULL,                         -- JSON
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
-CREATE INDEX idx_events_tenant_id ON monitor_events (tenant_id, id);
+CREATE INDEX IF NOT EXISTS idx_events_tenant_id ON monitor_events (tenant_id, id);
 
 -- Solicitudes de cita registradas por la herramienta book_technical_meeting.
-CREATE TABLE appointment_requests (
+CREATE TABLE IF NOT EXISTS appointment_requests (
   id              TEXT PRIMARY KEY,
   tenant_id       TEXT NOT NULL,
   call_id         TEXT REFERENCES calls(id) ON DELETE SET NULL,
@@ -86,10 +86,10 @@ CREATE TABLE appointment_requests (
                   CHECK (status IN ('PENDIENTE_CONFIRMACION','CONFIRMADA','RECHAZADA')),
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
-CREATE INDEX idx_appt_tenant_date ON appointment_requests (tenant_id, requested_date);
+CREATE INDEX IF NOT EXISTS idx_appt_tenant_date ON appointment_requests (tenant_id, requested_date);
 
 -- Bandeja de salida de emails (sustituye data/email_outbox.jsonl).
-CREATE TABLE email_outbox (
+CREATE TABLE IF NOT EXISTS email_outbox (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   tenant_id   TEXT NOT NULL,
   recipient   TEXT NOT NULL,
@@ -102,10 +102,10 @@ CREATE TABLE email_outbox (
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   sent_at     TEXT
 );
-CREATE INDEX idx_outbox_pending ON email_outbox (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_outbox_pending ON email_outbox (status, created_at);
 
 -- Rate-limit compartido entre instancias serverless (hoy en memoria por instancia).
-CREATE TABLE rate_limits (
+CREATE TABLE IF NOT EXISTS rate_limits (
   bucket       TEXT NOT NULL,                       -- p. ej. 'identify:<ip>'
   window_start INTEGER NOT NULL,                    -- epoch s, ventana fija
   hits         INTEGER NOT NULL DEFAULT 0,

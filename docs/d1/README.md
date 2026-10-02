@@ -1,28 +1,52 @@
 # Cloudflare D1 para La Centralita
 
-**Creada 2026-10-02:** `la-centralita-db` · id `8d49e194-6de2-46e2-8d73-144c35ef2ecd` · región **WEUR** (servida desde LHR).
-Esquema `0001_la_centralita.sql` aplicado: 7 tablas + 7 índices, vacías. `welux-events-db` intacta.
-El backend todavía NO la usa (sigue con memoria/ficheros + Google Sheets): falta elegir opción 1 o 2 de abajo.
+**Base:** `la-centralita-db` · id `8d49e194-6de2-46e2-8d73-144c35ef2ecd` · región **WEUR** (servida desde LHR).
+Migraciones `0001` y `0002` aplicadas en remoto (7 tablas, vacías). `welux-events-db` intacta (pertenece a welux-events / Rebeca AI, no se reutiliza).
 
+## Arquitectura (opción B, implementada)
 
-**Estado verificado**
-- Token de API original: válido para zonas, Workers y KV, **sin permiso D1** (`/accounts/{id}/d1/database` → `10000 Authentication error`).
-- Segundo token (2026-10-02): D1 **solo lectura** (lista bases, no puede escribir); además lee Workers, KV, zonas y Pages.
-- Conector Cloudflare de Claude (OAuth): D1 lectura y escritura en la misma cuenta (con él se creó la base).
-- D1 existente: `welux-events-db` (US-East, 8 tablas: `chat_logs`, `whatsapp_conversations`, `client_inquiries`…). Pertenece a welux-events / Rebeca AI → **no se reutiliza** (regla del HANDSHAKE).
+```
+FastAPI (Vercel) / worker de voz ──HTTPS, Bearer GATEWAY_SECRET + X-Tenant-Id──▶ Worker d1-gateway ──binding──▶ D1
+```
 
-**Propuesta**
-- Base nueva `la-centralita-db` en `weur` (datos personales de clientes UE → en la UE).
-- Esquema: [`0001_la_centralita.sql`](0001_la_centralita.sql). Cubre todo lo que hoy es efímero en el backend: leads, llamadas y turnos de transcripción, bus de eventos del panel, solicitudes de cita, bandeja de email y rate-limit compartido.
-- Google Sheets pasa a ser exportación (columna `sheets_synced_at`), no el registro maestro.
-- `tenant_id` en todas las tablas raíz: la centralita es producto B2B.
+- Worker: [`workers/d1-gateway`](../../workers/d1-gateway) — API interna `/v1/*` (leads, calls, turns, events, appointments, ratelimit). SQL parametrizado, aislamiento por tenant (409/404 entre tenants), secreto comparado en tiempo constante. El token de Cloudflare no sale de Cloudflare.
+- Esquema: [`workers/d1-gateway/migrations/`](../../workers/d1-gateway/migrations) (`0001` idempotente; `0002` quita la unicidad teléfono+email, que rechazaba leads legítimos).
+- Cliente Python: `agent/d1_gateway.py`. Se activa solo con `D1_GATEWAY_URL` + `D1_GATEWAY_SECRET` (≥ 32 caracteres). Sin ellas el backend sigue igual (memoria/ficheros + Google Sheets).
 
-**Acceso desde el backend (FastAPI en Vercel)**
-D1 no tiene driver nativo para Python fuera de Workers. Dos opciones:
-1. API HTTP de D1 (`POST /accounts/{id}/d1/database/{db}/query`) con un token **solo D1:Edit** de esta base. Simple; +latencia por consulta.
-2. Un Worker propio que exponga un API interna sobre el binding D1 (recomendado para producción: menor latencia y el token no sale de Cloudflare).
+**Qué usa D1 cuando está activo**
+| Función | Comportamiento | Si D1 falla |
+|---|---|---|
+| `/api/call-event` | guarda llamada, turnos y lead (`persisted`) | `persisted:false`, el evento se emite igual |
+| `/api/events` (polling) | cursor duradero entre instancias (`instance:"d1"`) | buffer de la instancia |
+| `/api/leads`, `/api/calls`, `/api/appointments` | lectura de D1 | Sheets / memoria / fichero (con `d1_error`) |
+| `/api/leads/{id}/stage` | D1 primero; Sheets best-effort | 502 (nunca "updated" falso) |
+| `/api/client-identify` | lead `portal` con `consent_at` (`d1_status`) | Sheets + email como antes |
+| Rate-limits (identify, auth, demo) | compartidos entre instancias | limitador en memoria |
+| Agente `book_technical_meeting` | además del `.jsonl` local | queda en el `.jsonl` |
 
-**Pendiente de decisión del dueño**
-1. ~~Crear `la-centralita-db` (weur) y aplicar `0001_la_centralita.sql`.~~ Hecho.
-2. Crear un token **restringido** (D1 Edit sobre esta cuenta), en vez de usar el token de acceso total.
-3. Elegir opción 1 o 2.
+## Despliegue (pendiente del dueño)
+
+Requiere un token de Cloudflare con **Workers Scripts:Edit + D1:Edit** (el token actual es solo D1 y no puede desplegar Workers).
+
+```bash
+cd workers/d1-gateway
+npm ci
+export CLOUDFLARE_API_TOKEN=...            # solo en la terminal, nunca en ficheros
+npx wrangler secret put GATEWAY_SECRET     # pegar un valor aleatorio >= 32 chars (p. ej. openssl rand -hex 32)
+npm run migrate:remote                     # idempotente: 0001/0002 ya están aplicadas
+npm run deploy                             # imprime la URL *.workers.dev
+```
+
+Después, en Vercel (y en el entorno del worker de voz): `D1_GATEWAY_URL=<url del worker>`, `D1_GATEWAY_SECRET=<mismo valor>`, `CENTRALITA_TENANT_ID=welux`. Comprobar con `GET /api/status/details` → `d1_configured: true`.
+
+## Desarrollo local
+
+```bash
+cd workers/d1-gateway
+echo "GATEWAY_SECRET=$(openssl rand -hex 24)" > .dev.vars   # gitignored
+npm run migrate:local && npm run dev                         # http://127.0.0.1:8787
+```
+
+## Historial de acceso
+- Token 1: sin D1 (revocado). Token 2: D1 solo lectura. Token 3: sin D1. → **revocar 2 y 3**.
+- Token 4: restringido a D1 (lectura/escritura). Con él / el conector se creó la base y se aplicaron las migraciones.

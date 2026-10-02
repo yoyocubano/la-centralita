@@ -1,0 +1,16 @@
+# Gateway interno de La Centralita sobre Cloudflare D1 (opción B).
+# Despliegue:  npx wrangler deploy   (token con Workers Scripts:Edit + D1:Edit)
+# Secreto:     npx wrangler secret put GATEWAY_SECRET
+name = "la-centralita-d1-gateway"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "la-centralita-db"
+database_id = "8d49e194-6de2-46e2-8d73-144c35ef2ecd"
+migrations_dir = "migrations"
+
+[observability]
+enabled = true

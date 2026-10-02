@@ -32,10 +32,12 @@ try:
     from prompts import SYSTEM_PROMPT
     from post_call import PostCallProcessor, format_duration, mask_phone
     from tts_factory import build_tts
+    from d1_gateway import D1Gateway, D1GatewayError
 except ImportError:
     from .prompts import SYSTEM_PROMPT
     from .post_call import PostCallProcessor, format_duration, mask_phone
     from .tts_factory import build_tts
+    from .d1_gateway import D1Gateway, D1GatewayError
 
 load_dotenv()
 logger = logging.getLogger("centralita")
@@ -86,6 +88,13 @@ async def book_technical_meeting(
             f.write(json.dumps(request, ensure_ascii=False) + "\n")
 
     await asyncio.to_thread(_append)
+    d1 = D1Gateway()
+    if d1.enabled:
+        try:
+            await d1.add_appointment({k: v for k, v in request.items() if k not in ("created_at", "status")})
+        except D1GatewayError as exc:
+            # El fichero local ya la tiene: el equipo no la pierde aunque D1 falle.
+            logger.warning("[Agenda] Solicitud %s no guardada en D1: %s", request["id"], exc)
     logger.info("[Agenda] Solicitud %s registrada (tel %s)", request["id"], mask_phone(phone))
     when = f"el {requested_date}" + (f" a las {requested_time}" if requested_time else "")
     return (

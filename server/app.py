@@ -39,6 +39,7 @@ from livekit import api
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent.config import DATA_DIR, Config
+from agent.d1_gateway import D1Gateway, D1GatewayError
 from agent.email_notify import EmailNotifier
 from agent.post_call import PostCallProcessor, mask_phone
 from agent.sheets_sync import GoogleSheetsSync
@@ -348,6 +349,18 @@ auth_verify_limiter = SlidingWindowRateLimiter(max_requests=10, window_seconds=6
 demo_token_limiter = SlidingWindowRateLimiter(max_requests=3, window_seconds=600)
 
 
+async def rate_limit_allows(limiter: "SlidingWindowRateLimiter", name: str, request: Request) -> bool:
+    """Rate-limit compartido entre instancias vía D1; si D1 no está o falla, por instancia."""
+    key = client_key(request)
+    store = D1Gateway()
+    if store.enabled:
+        try:
+            return await store.rate_limit_hit(f"{name}:{key}", int(limiter.window_seconds), limiter.max_requests)
+        except D1GatewayError as exc:
+            logger.warning("Rate-limit D1 no disponible; se usa el de la instancia", extra={"extra_data": {"error": str(exc)}})
+    return limiter.allow(key)
+
+
 def client_key(request: Request) -> str:
     if Config.SERVERLESS:
         # Vercel fija x-real-ip; en x-forwarded-for la entrada fiable es la ÚLTIMA
@@ -462,8 +475,15 @@ EVENT_LOG = EventLog()
 
 
 async def publish_event(event: dict) -> None:
-    """Registra el evento para polling y lo difunde a los WebSocket conectados."""
+    """Registra el evento para polling (D1 si está configurado, si no en memoria) y lo
+    difunde a los WebSocket conectados."""
     EVENT_LOG.append(event)
+    store = D1Gateway()
+    if store.enabled:
+        try:
+            await store.append_event(str(event.get("type", "event")), event)
+        except D1GatewayError as exc:
+            logger.warning("Evento no persistido en D1", extra={"extra_data": {"error": str(exc)}})
     await monitor_hub.broadcast(event)
 
 
@@ -494,6 +514,7 @@ async def get_status_details():
         "tts_provider": Config.TTS_PROVIDER,
         "tts_fallback": Config.TTS_FALLBACK_PROVIDER,
         "n8n_configured": bool(Config.N8N_WEBHOOK_URL),
+        "d1_configured": D1Gateway().enabled,
         "monitors_connected": len(monitor_hub.active_connections),
         "serverless": Config.SERVERLESS,
         "realtime_transport": "polling" if Config.SERVERLESS else "websocket",
@@ -550,7 +571,7 @@ async def get_public_demo_token(request: Request):
         raise HTTPException(status_code=404, detail="Demo pública desactivada.")
     if not Config.LIVEKIT_API_KEY or not Config.LIVEKIT_API_SECRET:
         raise HTTPException(status_code=503, detail="LiveKit no configurado en el servidor.")
-    if not demo_token_limiter.allow(client_key(request)):
+    if not await rate_limit_allows(demo_token_limiter, "demo_token", request):
         raise HTTPException(status_code=429, detail="Demasiadas solicitudes. Inténtelo más tarde.")
 
     identity = f"demo-{uuid.uuid4().hex[:10]}"
@@ -637,6 +658,22 @@ async def poll_events(
     actual (arranque en frío o petición servida por otra instancia), el cursor del
     cliente no es válido aquí: se devuelve el buffer completo con `reset=true`.
     """
+    store = D1Gateway()
+    if store.enabled:
+        # Cursor duradero (id de D1): válido entre instancias y arranques en frío.
+        try:
+            reset = bool(instance) and instance != "d1"
+            rows = await store.events_since(0 if reset else since)
+            return {
+                "instance": "d1",
+                "cursor": rows[-1]["id"] if rows else (0 if reset else since),
+                "reset": reset,
+                "events": [row["payload"] for row in rows],
+                "transport": "polling",
+                "source": "cloudflare_d1",
+            }
+        except D1GatewayError as exc:
+            logger.warning("Polling D1 no disponible; se usa el buffer de la instancia", extra={"extra_data": {"error": str(exc)}})
     reset = bool(instance) and instance != EVENT_LOG.instance
     items = EVENT_LOG.since(0 if reset else since)
     return {
@@ -671,8 +708,47 @@ async def receive_call_event(event: dict):
         if validated_event.lead:
             LEADS_DATABASE.append(validated_event.lead)
 
+    persisted = await persist_call_event(validated_event)
     await publish_event(event_dict)
-    return {"status": "broadcasted", "receivers": len(monitor_hub.active_connections)}
+    return {"status": "broadcasted", "receivers": len(monitor_hub.active_connections), "persisted": persisted}
+
+
+def _duration_to_seconds(value: Optional[str]) -> Optional[float]:
+    if not value:
+        return None
+    try:
+        if ":" in value:
+            minutes, seconds = value.split(":", 1)
+            return int(minutes) * 60 + float(seconds)
+        return float(value)
+    except ValueError:
+        return None
+
+
+async def persist_call_event(event: CallEventModel) -> Optional[bool]:
+    """Guarda llamada / turno / lead en D1. None si D1 no está configurado."""
+    store = D1Gateway()
+    if not store.enabled or not event.call_id:
+        return None
+    try:
+        if event.type == "call_started":
+            await store.upsert_call({"id": event.call_id, "room": event.room, "started_at": event.timestamp,
+                                     "status": "active", "tts_provider": Config.TTS_PROVIDER})
+        elif event.type == "transcript_delta" and event.role and event.text:
+            await store.add_turn(event.call_id, event.role, event.text)
+        elif event.type == "call_ended":
+            lead_id = None
+            if event.lead and (event.lead.get("nombre") or event.lead.get("telefono")):
+                lead = dict(event.lead)
+                lead["id"] = lead.get("id") or GoogleSheetsSync().generate_lead_id(lead)
+                lead_id = await store.upsert_lead(lead, "llamada")
+            await store.upsert_call({"id": event.call_id, "room": event.room, "status": "ended",
+                                     "ended_at": event.timestamp or datetime.now(timezone.utc).isoformat(),
+                                     "duration_seconds": _duration_to_seconds(event.duration), "lead_id": lead_id})
+        return True
+    except D1GatewayError as exc:
+        logger.error("Evento de llamada no persistido en D1", extra={"extra_data": {"type": event.type, "error": str(exc)}})
+        return False
 
 
 @app.post("/api/docuseal/webhook", tags=["DocuSeal & Firmas"])
@@ -724,7 +800,23 @@ async def docuseal_webhook(request: Request, payload: dict):
 
 @app.get("/api/calls", tags=["Persistencia"], dependencies=[require_auth])
 async def get_calls():
-    """Historial de llamadas de la sesión del servidor (memoria acotada)."""
+    """Historial de llamadas: D1 si está configurado; si no, memoria de la sesión."""
+    store = D1Gateway()
+    if store.enabled:
+        try:
+            rows = await store.list_calls()
+            calls = [{
+                "call_id": r["id"], "room": r["room"], "timestamp": r["started_at"], "status": r["status"],
+                "duration": (f"{int(r['duration_seconds']) // 60:02d}:{int(r['duration_seconds']) % 60:02d}"
+                             if r.get("duration_seconds") is not None else None),
+                "transcript": r.get("transcript") or "",
+                "lead": ({"id": r["lead_id"], "nombre": r.get("lead_nombre"), "telefono": r.get("lead_telefono"),
+                          "motivo": r.get("lead_motivo")} if r.get("lead_id") else None),
+                "agent": "Sofía (IA WELUX)",
+            } for r in rows]
+            return {"calls": calls, "count": len(calls), "source": "cloudflare_d1"}
+        except D1GatewayError as exc:
+            logger.error("Lectura de llamadas en D1 fallida", extra={"extra_data": {"error": str(exc)}})
     calls = list(CALLS_DATABASE)
     return {"calls": calls, "count": len(calls), "source": "memory_session"}
 
@@ -737,7 +829,7 @@ async def client_identify_endpoint(payload: ClientIdentifyModel, request: Reques
     validación estricta y rate-limit por IP (5 / 10 min). La respuesta declara el
     estado REAL de cada destino (nunca "notificado" si el email quedó en cola).
     """
-    if not identify_limiter.allow(client_key(request)):
+    if not await rate_limit_allows(identify_limiter, "identify", request):
         raise HTTPException(status_code=429, detail="Demasiadas solicitudes. Inténtelo más tarde.")
 
     consent_at = datetime.now(timezone.utc).isoformat()
@@ -773,6 +865,16 @@ async def client_identify_endpoint(payload: ClientIdentifyModel, request: Reques
         }},
     )
 
+    d1_status = "not_configured"
+    store = D1Gateway()
+    if store.enabled:
+        try:
+            await store.upsert_lead({**lead_dict, "id": sync_res.get("lead_id") or sheets_sync.generate_lead_id(lead_dict)}, "portal")
+            d1_status = "stored"
+        except D1GatewayError as exc:
+            d1_status = "error"
+            logger.error("Lead del portal no guardado en D1", extra={"extra_data": {"error": str(exc)}})
+
     LEADS_DATABASE.append(lead_dict)
     await publish_event({
         "type": "lead_created",
@@ -781,13 +883,14 @@ async def client_identify_endpoint(payload: ClientIdentifyModel, request: Reques
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
-    sheets_ok = sync_res.get("status") in ("SYNCED_ONLINE", "ALREADY_SYNCED")
+    stored = sync_res.get("status") in ("SYNCED_ONLINE", "ALREADY_SYNCED") or d1_status == "stored"
     email_ok = email_res.get("status") == "SENT"
     return {
-        "status": "ok" if sheets_ok and email_ok else "partial",
-        "message": "Identificación registrada" if sheets_ok else "Identificación recibida; pendiente de sincronizar",
+        "status": "ok" if stored and email_ok else "partial",
+        "message": "Identificación registrada" if stored else "Identificación recibida; pendiente de sincronizar",
         "lead_id": sync_res.get("lead_id"),
         "sheets_status": sync_res.get("status"),
+        "d1_status": d1_status,
         "email_status": email_res.get("status"),
     }
 
@@ -800,6 +903,17 @@ async def get_leads():
     - Sheet caído / sin config -> source="memory_session", degraded=true y el motivo:
       solo los leads de ESTA sesión del servidor; el panel lo muestra como aviso.
     """
+    store = D1Gateway()
+    d1_error = None
+    if store.enabled:
+        try:
+            rows = await store.list_leads()
+            leads = [{**row, "timestamp_lux": row.get("created_at")} for row in rows]
+            return {"leads": leads, "count": len(leads), "source": "cloudflare_d1", "degraded": False}
+        except D1GatewayError as exc:
+            d1_error = str(exc)
+            logger.error("Lectura de leads en D1 fallida; se intenta Google Sheets", extra={"extra_data": {"error": d1_error}})
+
     result = await GoogleSheetsSync().read_leads()
     if result.status == "ok":
         return {
@@ -808,6 +922,7 @@ async def get_leads():
             "source": "google_sheets_live",
             "degraded": False,
             "rows_needing_repair": result.rows_needing_repair,
+            **({"d1_error": d1_error} if d1_error else {}),
         }
 
     session_leads = list(LEADS_DATABASE)
@@ -818,6 +933,7 @@ async def get_leads():
         "degraded": True,
         "sheet_status": result.status,
         "sheet_error": result.error,
+        **({"d1_error": d1_error} if d1_error else {}),
     }
 
 
@@ -831,6 +947,20 @@ async def update_lead_stage(lead_id: str, payload: LeadStageModel):
     """Cambia la etapa comercial de un lead directamente en el Google Sheet."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", lead_id):
         raise HTTPException(status_code=400, detail="lead_id inválido")
+    store = D1Gateway()
+    if store.enabled:
+        try:
+            await store.set_stage(lead_id, payload.stage)
+        except D1GatewayError as exc:
+            if exc.status == 404:
+                raise HTTPException(status_code=404, detail="Lead no encontrado.")
+            raise HTTPException(status_code=502, detail="Base de datos no disponible; la etapa no se ha guardado.")
+        # Google Sheets como exportación: best-effort
+        try:
+            await GoogleSheetsSync().update_stage(lead_id, payload.stage)
+        except Exception:
+            pass
+        return {"status": "updated", "lead_id": lead_id, "stage": payload.stage, "source": "cloudflare_d1"}
     try:
         result = await GoogleSheetsSync().update_stage(lead_id, payload.stage)
     except Exception as exc:
@@ -851,6 +981,13 @@ APPOINTMENT_REQUESTS_FILE = DATA_DIR / "appointment_requests.jsonl"
 @app.get("/api/appointments", tags=["Agenda"], dependencies=[require_auth])
 async def get_appointment_requests():
     """Solicitudes de cita registradas por el agente de voz (pendientes de confirmación)."""
+    store = D1Gateway()
+    if store.enabled:
+        try:
+            rows = await store.list_appointments()
+            return {"appointments": rows, "count": len(rows), "source": "cloudflare_d1"}
+        except D1GatewayError as exc:
+            logger.error("Lectura de citas en D1 fallida", extra={"extra_data": {"error": str(exc)}})
     items: List[dict] = []
     try:
         lines = APPOINTMENT_REQUESTS_FILE.read_text(encoding="utf-8").splitlines()[-200:]
@@ -1053,7 +1190,7 @@ class AuthVerifyRequest(BaseModel):
 @app.post("/api/auth/verify", tags=["Seguridad"])
 async def auth_verify_endpoint(payload: AuthVerifyRequest, request: Request):
     """Verifica el token del operador (tiempo constante, máx. 10 intentos / 10 min por IP)."""
-    if not auth_verify_limiter.allow(client_key(request)):
+    if not await rate_limit_allows(auth_verify_limiter, "auth_verify", request):
         raise HTTPException(status_code=429, detail="Demasiados intentos. Inténtelo más tarde.")
     if is_valid_token(payload.token):
         return {"authenticated": True, "role": "operator", "timestamp": datetime.now(timezone.utc).isoformat()}
