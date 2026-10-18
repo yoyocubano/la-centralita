@@ -1,27 +1,32 @@
+"""Herramientas de agenda del agente: registran solicitudes, nunca confirman citas falsas."""
+
+import json
+
 import pytest
-from agent.agent import check_calendar_availability, book_technical_meeting
+
+import agent.agent as voice_agent
 
 
 @pytest.mark.asyncio
-async def test_dograh_calendar_availability_tool():
-    """Verifica que la herramienta Dograh de disponibilidad devuelva slots válidos."""
-    res = await check_calendar_availability("2026-10-22")
-    assert isinstance(res, str)
+async def test_availability_does_not_invent_slots():
+    res = await voice_agent.check_calendar_availability("2026-10-22")
     assert "2026-10-22" in res
-    assert "16:30" in res
+    assert "confirmará" in res
 
 
 @pytest.mark.asyncio
-async def test_dograh_book_technical_meeting_tool():
-    """Verifica que la herramienta Dograh de reserva confirme la reunión con el cliente."""
-    res = await book_technical_meeting(
+async def test_booking_registers_pending_request(tmp_path, monkeypatch):
+    target = tmp_path / "appointment_requests.jsonl"
+    monkeypatch.setattr(voice_agent, "APPOINTMENT_REQUESTS_FILE", target)
+    res = await voice_agent.book_technical_meeting(
         client_name="Marc Becker",
         phone="+352 691 334 221",
-        event_type="Lanzamiento automotriz",
+        event_type="Lanzamiento",
         requested_date="2026-10-22",
         requested_time="11:00",
     )
-    assert isinstance(res, str)
-    assert "Marc Becker" in res
-    assert "11:00" in res
-    assert "confirmada" in res.lower()
+    assert "pendiente de confirmación" in res.lower()
+    assert "confirmada con éxito" not in res.lower()
+    stored = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
+    assert stored[0]["status"] == "PENDIENTE_CONFIRMACION"
+    assert stored[0]["requested_time"] == "11:00"

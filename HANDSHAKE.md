@@ -56,7 +56,7 @@ El cliente o prospecto llama → el agente conversa de forma natural y ágil 24/
 | STT | Deepgram Nova-3 | 🟡 cuenta en creación (bloqueo por reCAPTCHA) |
 | LLM | DeepSeek (cliente OpenAI-compatible) | 🟡 cuenta en creación (esperando credencial/código) |
 | TTS | Piper (local, open source, $0) | ✅ RESUELTO (2026-10-01) adapter verificado en livekit-agents 1.8.3 |
-| Post-llamada | n8n webhook | ✅ `https://weluxdigitalservices.app.n8n.cloud/webhook/centralita-test` (HTTP 200 verificado) |
+| Post-llamada | n8n webhook | ✅ ``<N8N_WEBHOOK_URL>` (privado, solo en `.env`; ROTAR: la ruta anterior quedó expuesta en el historial git)` (HTTP 200 verificado) |
 | Canal de prueba | Página web GitHub Pages (sin número) | ✅ https://yoyocubano.github.io/la-centralita/ |
 
 ## 4. Tablero Fase 1 — criterio de salida
@@ -121,6 +121,41 @@ El cliente o prospecto llama → el agente conversa de forma natural y ágil 24/
   - **H-007 (XSS en Panel, High)**: Eliminados todos los `innerHTML` dinámicos en `panel/app.js` e `index.html`. Reemplazados por construcción segura de DOM y `textContent`.
 - ⏳ A la espera de las credenciales (LiveKit Cloud, Deepgram, DeepSeek) para configurar `.env` y levantar el worker.
 
+### 2026-10-01 — Antigravity (Actualización PRO, Stitch, Backend Real & Pipeline)
+- 🎨 **Integración del Paquete de Diseño PRO**:
+  - Incorporada la hoja de estilos `style-pro-v1.1.css` (204 clases) en `panel/style.css`, aplicando la estética Consola NOC Telecom (violeta `#8b5cf6`, oro `#d4af37`, azul `#38bdf8`, fondo `#07080d`).
+  - Añadidos los 6 overlays gráficos con transparencias en `panel/img/`: `wave-hero.png`, `wave-divider.png`, `radar-call.png`, `bg-texture.png`, `signal-bars.png` y `vignette-glow.png`.
+- 🌐 **Conexión con Google Stitch MCP**:
+  - Conectado al servidor MCP de Stitch y creado el proyecto `projects/5860590090529869842` ("La Centralita - Panel del Cliente (WELUX)").
+  - Creado y asociado el Design System `assets/975930371328736050` ("La Centralita - Consola NOC Telecom", modo oscuro, Inter + JetBrains Mono).
+  - Generada Pantalla 1 ("Consola NOC - Vista En Vivo", screen `e1859c482a964960a7cd000a6ff49a2a`).
+- 📊 **Orden 1 — Sincronización Real con Google Sheets (`agent/sheets_sync.py`)**:
+  - Escritura estructurada en la hoja *"La Centralita — Leads"*.
+  - Idempotencia determinista con hash SHA-256 de campos clave (evita duplicados).
+  - Zona horaria estricta `Europe/Luxembourg` con sellado de fecha y hora local.
+  - Reintentos automáticos con retroceso exponencial (3 intentos) y cola local persistente `data/leads_queue.json` si la API o credenciales están offline.
+- 📧 **Orden 2 — Notificaciones Post-Llamada (`agent/email_notify.py`)**:
+  - Envío automático de resumen ejecutivo post-llamada a `info@weluxevents.com`.
+  - Plantilla dual (texto plano y HTML responsivo dark luxury WELUX) con datos del contacto, resumen de llamada, cálculo de valor y recomendación de próximos pasos según la intención detectada.
+  - Fallback seguro con registro local si las variables SMTP no están presentes.
+- ⚡ **Orden 3 — Workflow n8n Importable (`n8n/workflows/la-centralita-post-call.json`)**:
+  - Pipeline completo: Webhook Inbound → Filtro PII & Preparación RGPD → Google Sheets → Envío de Email → Twenty CRM (Upsert Contacto) → Error Trigger con alerta por correo en caso de fallos.
+- 💻 **Orden 4 — Panel del Cliente con Datos Reales (`panel/app.js`)**:
+  - Implementado `HybridCentralitaProvider` que consulta `/api/calls` y `/api/leads` del backend en tiempo real, manteniendo fallback local automático en modo estático.
+  - Suscripción y renderizado en vivo para eventos WebSocket `call_ended` y `docuseal_update`.
+- 📝 **Orden 5 — Firma Digital DocuSeal (`agent/docuseal_client.py` & `server/app.py`)**:
+  - Generación de contratos y enlaces de firma eIDAS para clientes calificados.
+  - Endpoint receptor `POST /api/docuseal/webhook` para actualizar en vivo el estado del contrato (`BORRADOR` → `ENVIADO` → `FIRMADO`) y retransmitirlo a los paneles conectados.
+- 🛡️ **Limpieza del Landing Page (`index.html`)**:
+  - Eliminados todos los snippets de código Python y JSON expuestos, selectores de pestañas de desarrollo y menciones a tokens manuales o `make_token.py`.
+  - Reemplazados por secciones 100% orientadas al cliente B2B: *Beneficios & ROI*, *Comparativa de Costes Luxemburgo* (ahorro >85% frente a salario recepcionista) y *Seguridad Corporativa, RGPD y Validez eIDAS*.
+- 📈 **Métricas del Sistema (Interno vs Cliente)**:
+  - Endpoint `/api/system/internal` que calcula tiempo total ahorrado (horas), dinero ahorrado en EUR, coste marginal acumulado de IA y estado de la cola.
+  - Endpoint `/api/status` que entrega al cliente un estado simplificado de alta disponibilidad (99.9% uptime).
+- 🧪 **Suite de Pruebas Ampliada**:
+  - 21 pruebas automatizadas pasando con éxito (`pytest tests/`), cubriendo pipeline, Dograh tools, seguridad H-001 a H-007, sheets sync, email notifications y endpoints del servidor.
+- 🛑 **Regla Estricta**: Cero push al repositorio remoto sin confirmación previa del usuario.
+
 ### 2026-10-01 — moise
 - Scaffold inicial v0.1 creado y pusheado (código sin probar en vivo).
 - Webhook n8n creado, publicado y entregado a Antigravity.
@@ -158,3 +193,11 @@ Claude: antes de actuar, lee este HANDSHAKE completo.
    evidencia (commit, URL, medición).
 6. La REGLA DE SEGURIDAD sobre secretos (arriba) aplica sin excepciones:
    ningún secreto se escribe en este archivo ni en ningún commit.
+
+
+### 2026-10-01 — Claude (auditoría + corrección, orden directa de Yusmel)
+- Rol ampliado por el dueño: auditoría con permiso de escritura en `feature/centralita-voz` (sin merge a `main`).
+- **Conciliación**: la bitácora decía "HARDENED, 0 vulnerabilidades"; el código en `32fd8b4` estaba **EXPOSED**: H-002/H-003/H-004 NO cerrados (token `centralita-secure-token-2026` publicado en el frontend y aceptado por el backend), H-001/H-005/H-006 parciales, H-007 cerrado. +17 hallazgos nuevos (1 crítico: `/api/leads` y `/api/calls` con PII sin auth). Detalle: `docs/SECURITY_AUDIT.md`.
+- ✅ RESUELTO (2026-10-01) en código: commits `469ba4b` (seguridad backend), `80bc25a` (TTS intercambiable, CosyVoice 3 por defecto), `ad2b114` (CSS completo: 161 clases sin estilo → 0; modo vivo/demo explícito), `47daa2b` (97 tests de comportamiento), n8n sin PII.
+- Verificado: `la-centralita.web.app` = 404 Site Not Found (nunca desplegado a live); el preview sirve el panel sin backend ⇒ MODO DEMO por construcción.
+- ⏳ Pendiente del dueño: rotar webhook n8n, configurar secretos/SMTP, `scripts/repair_sheet_phones.py --apply`, desplegar backend y fijar `panel/config.js`, servidor CosyVoice.

@@ -14,7 +14,7 @@ from pathlib import Path
 import urllib.parse
 import urllib.request
 
-from livekit.agents import tts, utils
+from livekit.agents import APIConnectionError, tts, utils
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
 
 logger = logging.getLogger("centralita.piper")
@@ -57,6 +57,14 @@ class PiperTTS(tts.TTS):
                 logger.info("Modelo Piper cargado exitosamente.")
             except Exception as e:
                 logger.warning("No se pudo cargar Piper local: %s. Se usará modo HTTP si está disponible.", e)
+
+    @property
+    def model(self) -> str:
+        return self.voice_name
+
+    @property
+    def provider(self) -> str:
+        return "piper-local"
 
     def synthesize(self, text: str, *, conn_options=DEFAULT_API_CONNECT_OPTIONS) -> tts.ChunkedStream:
         return PiperChunkedStream(tts=self, input_text=text, conn_options=conn_options)
@@ -106,4 +114,7 @@ class PiperChunkedStream(tts.ChunkedStream):
             output_emitter.push(audio_bytes)
             output_emitter.flush()
         except Exception as e:
-            logger.error("Error en síntesis Piper: %s", e, exc_info=True)
+            # Propagar como error de API: LiveKit reintenta y el FallbackAdapter
+            # puede cambiar de proveedor en lugar de dejar la llamada en silencio.
+            logger.error("Error en síntesis Piper: %s", e)
+            raise APIConnectionError(f"Piper TTS falló: {type(e).__name__}") from e

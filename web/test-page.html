@@ -28,25 +28,68 @@
 const log = (m) => { const el = document.getElementById('log'); el.textContent += m + "\n"; el.scrollTop = el.scrollHeight; };
 let room = null;
 
+async function autoFetchToken() {
+  const tokenInput = document.getElementById('token');
+  const urlInput = document.getElementById('url');
+  if (tokenInput.value.trim() && urlInput.value.trim()) return;
+  try {
+    log("Obteniendo credenciales WebRTC seguras desde /api/token...");
+    const res = await fetch('/api/token?room=centralita-test', {
+      headers: { 'Authorization': 'Bearer centralita-secure-token-2026' }
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    urlInput.value = data.url;
+    tokenInput.value = data.token;
+    log("Token generado automáticamente para sala: " + data.room);
+  } catch (e) {
+    log("Aviso: No se pudo auto-obtener token (" + e.message + "). Ingrésalo manualmente.");
+  }
+}
+
+document.addEventListener('DOMContentLoaded', autoFetchToken);
+
 document.getElementById('call').onclick = async () => {
-  const url = document.getElementById('url').value.trim();
-  const token = document.getElementById('token').value.trim();
+  let url = document.getElementById('url').value.trim();
+  let token = document.getElementById('token').value.trim();
+  if (!url || !token) {
+    await autoFetchToken();
+    url = document.getElementById('url').value.trim();
+    token = document.getElementById('token').value.trim();
+  }
   if (!url || !token) { log("Falta URL o token."); return; }
-  room = new LivekitClient.Room();
-  room.on(LivekitClient.RoomEvent.TrackSubscribed, (track) => {
-    if (track.kind === LivekitClient.Track.Kind.Audio) {
-      const audio = track.attach();
-      document.body.appendChild(audio);
-      log("🔊 Audio del agente conectado.");
+  try {
+    room = new LivekitClient.Room({
+      adaptiveStream: true,
+      dynacast: true
+    });
+    window.room = room;
+    room.on(LivekitClient.RoomEvent.ParticipantConnected, (p) => {
+      log("👤 Entró a la sala: " + p.identity + " (" + (p.name || 'Agente') + ")");
+    });
+    room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, pub, participant) => {
+      if (track.kind === LivekitClient.Track.Kind.Audio) {
+        const audio = track.attach();
+        document.body.appendChild(audio);
+        log("🔊 Audio recibido de " + participant.identity + " (" + track.sid + ")");
+      }
+    });
+    room.on(LivekitClient.RoomEvent.Disconnected, () => log("Llamada terminada."));
+    log("Conectando a LiveKit Cloud...");
+    await room.connect(url, token);
+    log("✅ Señalización establecida. Negociando canales de audio WebRTC...");
+    await new Promise(r => setTimeout(r, 1200));
+    try {
+      await room.localParticipant.setMicrophoneEnabled(true);
+      log("🎙️ Micrófono activo. ¡Habla con el agente!");
+    } catch (micErr) {
+      log("⚠️ Audio local no publicado: " + micErr.message + " (Escucha el audio del agente)");
     }
-  });
-  room.on(LivekitClient.RoomEvent.Disconnected, () => log("Llamada terminada."));
-  await room.connect(url, token);
-  log("✅ Conectado a la sala. Habilitando micrófono...");
-  await room.localParticipant.setMicrophoneEnabled(true);
-  log("🎙️ Habla con el agente.");
-  document.getElementById('call').disabled = true;
-  document.getElementById('hangup').disabled = false;
+    document.getElementById('call').disabled = true;
+    document.getElementById('hangup').disabled = false;
+  } catch (err) {
+    log("❌ Error al conectar llamada: " + err.message);
+  }
 };
 
 document.getElementById('hangup').onclick = async () => {

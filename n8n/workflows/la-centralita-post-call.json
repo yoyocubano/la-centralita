@@ -1,0 +1,144 @@
+{
+  "name": "La Centralita — Registro de eventos post-llamada (anonimizado)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "centralita-post-call",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "node-webhook-inbound",
+      "name": "Webhook Agente Centralita",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "centralita-post-call",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Centralita X-Centralita-Secret"
+        }
+      },
+      "notes": "Credencial Header Auth: nombre 'X-Centralita-Secret', valor = N8N_WEBHOOK_SECRET del backend."
+    },
+    {
+      "parameters": {
+        "jsCode": "// El backend ya envía el evento SIN PII (sin nombre/teléfono/email; transcripción redactada).\n// Aquí solo se normaliza; se descartan campos inesperados (defensa en profundidad).\nconst p = $input.first().json.body || $input.first().json;\nconst r = p.lead_resumen || {};\nreturn [{ json: {\n  timestamp_lux: p.timestamp_lux || '',\n  lead_id: p.lead_id || '',\n  simulado: p.simulated === true ? 'SI' : 'NO',\n  duracion_s: Number(p.duration_seconds || 0),\n  motivo: String(r.motivo || '').slice(0, 200),\n  tipo_evento: String(r.tipo_evento || '').slice(0, 120),\n  fecha_evento: String(r.fecha_evento || ''),\n  lead_valido: r.es_lead_valido ? 'SI' : 'NO',\n  docuseal: p.docuseal_status || 'BORRADOR',\n  coste_usd: (p.metricas || {}).costo_estimado_llamada_usd || 0\n}}];"
+      },
+      "id": "node-normalize",
+      "name": "Normalizar evento (sin PII)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Llamadas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "node-sheets-calls",
+      "name": "Google Sheets - pestaña Llamadas (RAW)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "notes": "Registro de llamadas sin PII. Los LEADS (con PII) los escribe SOLO el backend en la pestaña 'Leads': no duplicar aquí."
+    },
+    {
+      "parameters": {},
+      "id": "node-error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        480,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "alerta-sistema@weluxevents.com",
+        "toEmail": "info@weluxevents.com",
+        "subject": "[ALERTA] Fallo en workflow n8n - La Centralita",
+        "emailFormat": "text",
+        "text": "=Nodo fallido: {{ $json.execution.error.node.name }}\nMensaje: {{ $json.execution.error.message }}\nHora: {{ new Date().toISOString() }}",
+        "options": {}
+      },
+      "id": "node-error-alert-email",
+      "name": "Email Alerta Fallo",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Agente Centralita": {
+      "main": [
+        [
+          {
+            "node": "Normalizar evento (sin PII)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar evento (sin PII)": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - pestaña Llamadas (RAW)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Email Alerta Fallo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

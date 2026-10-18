@@ -27,6 +27,8 @@ otros documentos de seguimiento.
 - `panel/` — Panel del Cliente (monitor web en vivo, CRM Twenty, analítica Metabase, agenda Dograh y firma digital DocuSeal)
 - `docs/` — referencias arquitectónicas (`OPEN_SOURCE_REFERENCES.md`) y auditoría de seguridad (`SECURITY_AUDIT.md`)
 - `security/` — ledger de seguridad Cloudflare (`findings.json` y `coverage-ledger.json`)
+- `server/` — backend FastAPI (tokens LiveKit, API del panel, webhooks)
+- `api/index.py` + `vercel.json` — despliegue del backend en Vercel (serverless); ver [`docs/VERCEL.md`](docs/VERCEL.md)
 - `web/test-page.html` — página de prueba WebRTC básica
 - `n8n/` — documentación del webhook post-llamada
 

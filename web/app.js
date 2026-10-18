@@ -1,4 +1,18 @@
 let currentRoom = null;
+
+// Token de operador: se pide una vez y vive solo en sessionStorage (nunca en el código).
+function getOperatorToken() {
+  let token = sessionStorage.getItem("centralita_operator_token") || "";
+  if (!token) {
+    token = (prompt("Token de operador (CENTRALITA_AUTH_TOKEN):") || "").trim();
+    if (token) sessionStorage.setItem("centralita_operator_token", token);
+  }
+  return token;
+}
+
+function authHeaders() {
+  return { "Authorization": `Bearer ${getOperatorToken()}` };
+}
 let timerInterval = null;
 let callSeconds = 0;
 let lastSpeechTimestamp = null;
@@ -62,7 +76,7 @@ async function startCall() {
 
     // 1. Obtener token del backend
     callStatusText.innerText = "Conectando con LiveKit Cloud...";
-    const res = await fetch("/api/token?room=centralita-test");
+    const res = await fetch("/api/token?room=centralita-test", { headers: authHeaders() });
     if (!res.ok) {
       const errData = await res.json();
       throw new Error(errData.detail || "Error obteniendo token");
@@ -237,18 +251,19 @@ async function testDirectWebhook() {
   btn.disabled = true;
   btn.innerText = "Enviando a n8n...";
   try {
-    const res = await fetch("/api/test-webhook", { method: "POST" });
+    const res = await fetch("/api/test-webhook", { method: "POST", headers: authHeaders() });
     const data = await res.json();
-    
-    // Mostrar en la pestaña de Lead
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+
+    // Mostrar en la pestaña de Lead (estado REAL de entrega a n8n)
+    const delivered = data.n8n_delivered === true;
     switchTab("lead");
-    leadStatusBadge.className = "lead-badge success";
-    leadStatusBadge.innerText = "Lead de Prueba Enviado";
-    leadN8nStatus.innerText = "Recibido por n8n con éxito";
-    leadJsonDisplay.innerText = JSON.stringify(data.payload, null, 2);
-    metricWebhookStatus.innerText = "Éxito (200 OK)";
-    metricWebhookStatus.style.color = "#34d399";
-    alert("¡Webhook de prueba recibido y ejecutado con éxito en n8n!");
+    leadStatusBadge.className = delivered ? "lead-badge success" : "lead-badge";
+    leadStatusBadge.innerText = "Lead de Prueba (simulado)";
+    leadN8nStatus.innerText = delivered ? "Recibido por n8n" : "n8n no configurado o no respondió";
+    leadJsonDisplay.innerText = JSON.stringify(data.lead, null, 2);
+    metricWebhookStatus.innerText = delivered ? "Entregado (2xx)" : "No entregado";
+    metricWebhookStatus.style.color = delivered ? "#34d399" : "#f87171";
   } catch (err) {
     alert("Error enviando webhook de prueba: " + err.message);
   } finally {
