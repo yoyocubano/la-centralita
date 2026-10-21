@@ -206,7 +206,15 @@ function initBackendWebSocket() {
   const wsHost = isLocal ? "localhost:8080" : window.location.host;
   // Obtención de token autorizador para el WebSocket (H-004)
   const urlParams = new URLSearchParams(window.location.search);
-  const token = urlParams.get("token") || localStorage.getItem("centralita_monitor_token") || "centralita-secure-token-2026";
+  // LC-0: ningún token válido vive en este archivo (es público). El operador
+  // introduce su credencial una vez y queda guardada en su navegador.
+  let token = urlParams.get("token") || localStorage.getItem("centralita_monitor_token");
+  if (!token) {
+    token = window.prompt("Token de acceso al monitor de La Centralita:");
+    if (token) {
+      localStorage.setItem("centralita_monitor_token", token);
+    }
+  }
   const wsUrl = `${protocol}//${wsHost}/ws/monitor?token=${encodeURIComponent(token)}`;
 
   try {
