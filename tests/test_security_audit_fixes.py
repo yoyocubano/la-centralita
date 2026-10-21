@@ -12,6 +12,12 @@ from server.app import app, ALLOWED_ROOMS, ALLOWED_EVENT_KEYS, get_authorized_to
 
 client = TestClient(app)
 
+# LC-0: la suite inyecta su propia credencial de operador. Antes tomaba un
+# token de get_authorized_tokens(), que solo era no vacío gracias al literal
+# hardcodeado en el servidor; ese literal ya no existe ni debe volver.
+if not Config.AUTH_TOKEN:
+    Config.AUTH_TOKEN = "token-exclusivo-para-tests"
+
 
 def test_h001_cors_restrictions():
     """H-001: Verifica que CORS restrinja orígenes, desactive credenciales y limite métodos."""
@@ -182,3 +188,38 @@ def test_h007_panel_app_xss_protection():
             assert line.strip().endswith('innerHTML = "";') or line.strip().endswith("innerHTML = '';"), (
                 f"Línea {i} contiene asignación a innerHTML potencialmente peligrosa: {line.strip()}"
             )
+
+
+
+def test_lc0_lc3_hardening():
+    """LC-0/LC-1/LC-2/LC-3 (auditoría 20/10/2026): regresión de los endurecimientos."""
+    valid_token = list(get_authorized_tokens())[0]
+
+    # LC-0: el antiguo token escrito en el código ya no autentica
+    assert "centralita-secure-token-2026" not in get_authorized_tokens()
+    res_old = client.get(
+        "/api/token?room=centralita-test",
+        headers={"Authorization": "Bearer centralita-secure-token-2026"},
+    )
+    assert res_old.status_code == 403
+
+    # LC-1: el historial de llamadas y los leads exigen autenticación
+    assert client.get("/api/calls").status_code == 401
+    assert client.get("/api/leads").status_code == 401
+    assert client.get("/api/calls", headers={"Authorization": f"Bearer {valid_token}"}).status_code == 200
+    assert client.get("/api/leads", headers={"Authorization": f"Bearer {valid_token}"}).status_code == 200
+
+    # LC-3: el webhook de prueba exige autenticación (no se ejercita el envío real)
+    assert client.post("/api/test-webhook").status_code == 401
+
+    # LC-2: el estado público ya no devuelve las URLs de LiveKit ni de n8n
+    status = client.get("/api/status").json()
+    assert "livekit_url" not in status
+    assert "n8n_webhook" not in status
+    assert isinstance(status["livekit_configured"], bool)
+    assert isinstance(status["n8n_configured"], bool)
+
+    # LC-0 (emisión pública): sala no permitida -> 403; permitida -> 200/503, nunca 401
+    assert client.get("/api/token/public?room=sala-privada").status_code == 403
+    res_public = client.get("/api/token/public?room=centralita-test")
+    assert res_public.status_code in (200, 503)

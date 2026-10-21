@@ -62,7 +62,7 @@ async function startCall() {
 
     // 1. Obtener token del backend
     callStatusText.innerText = "Conectando con LiveKit Cloud...";
-    const res = await fetch("/api/token?room=centralita-test");
+    const res = await fetch("/api/token/public?room=centralita-test");
     if (!res.ok) {
       const errData = await res.json();
       throw new Error(errData.detail || "Error obteniendo token");
@@ -237,7 +237,17 @@ async function testDirectWebhook() {
   btn.disabled = true;
   btn.innerText = "Enviando a n8n...";
   try {
-    const res = await fetch("/api/test-webhook", { method: "POST" });
+    // LC-3: el webhook de prueba exige la credencial del operador (la misma
+    // del monitor, si está guardada en este navegador).
+    const monitorToken = localStorage.getItem("centralita_monitor_token");
+    const res = await fetch("/api/test-webhook", {
+      method: "POST",
+      headers: monitorToken ? { Authorization: `Bearer ${monitorToken}` } : {},
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || "Prueba restringida: se requiere la credencial del operador.");
+    }
     const data = await res.json();
     
     // Mostrar en la pestaña de Lead
