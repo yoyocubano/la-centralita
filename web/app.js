@@ -153,9 +153,7 @@ function handleDisconnect() {
   leadStatusBadge.innerText = "Lead enviado";
   leadN8nStatus.innerText = "Entregado a n8n (HTTP 200)";
   
-  // Calcular costo medido (0€ por plan de prueba)
-  const durationMin = callSeconds / 60;
-  const cost = (durationMin * 0.0043).toFixed(4);
+  // Costo del plan de prueba: 0 €
   metricCost.innerText = `0.000 € (crédito)`;
 }
 

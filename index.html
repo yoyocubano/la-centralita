@@ -1557,7 +1557,7 @@ if __name__ == "__main__":
     payload = {
         "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
         "messages": [
-            {"role": "user", "content": EXTRACTION_PROMPT.format(transcript=transcript)}
+            {"role": "user", "content": EXTRACTION_PROMPT.replace("{transcript}", transcript)}
         ],
         "temperature": 0.1,
         "response_format": {"type": "json_object"},
@@ -1729,6 +1729,7 @@ if __name__ == "__main__":
     function appendDialogueMessage(role, text) {
       const dialogueBox = document.getElementById("dialogueBox");
       const div = document.createElement("div");
+      div.className = `dialogue-turn ${role === 'agent' ? 'agent' : 'user'}`;
       const authorDiv = document.createElement("div");
       authorDiv.className = "dialogue-author";
       authorDiv.textContent = role === 'agent' ? 'Sofía (IA WELUX)' : 'Tú (Cliente)';
@@ -1771,7 +1772,7 @@ if __name__ == "__main__":
         },
         "despacho_n8n": {
           "status": 200,
-          "webhook": "https://weluxdigitalservices.app.n8n.cloud/webhook/centralita-test",
+          "webhook": "https://tu-instancia-n8n.com/webhook/tu-secret-path-aqui",
           "timestamp": new Date().toISOString()
         }
       };
