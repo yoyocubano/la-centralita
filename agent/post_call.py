@@ -2,7 +2,6 @@ import hashlib
 import json
 import logging
 import re
-import time
 from datetime import datetime, timezone
 import aiohttp
 from openai import AsyncOpenAI

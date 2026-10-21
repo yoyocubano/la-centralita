@@ -22,12 +22,18 @@ otros documentos de seguimiento.
 ## Estructura
 
 - `agent/` — worker de LiveKit Agents (Python): `agent.py`, `prompts.py`,
-  `piper_tts.py`, `lead_extract.py`, `requirements.txt`, `.env.example`,
-  `make_token.py`
+  `piper_tts.py`, `lead_extract.py`, `post_call.py`, `config.py`,
+  `requirements.txt`, `.env.example`, `make_token.py`
+- `server/` — backend FastAPI (`app.py`): tokens LiveKit, WebSocket del
+  monitor (`/ws/monitor`), endpoints REST y despacho a n8n
+- `index.html` — landing pública y simulador para GitHub Pages
 - `panel/` — Panel del Cliente (monitor web en vivo, CRM Twenty, analítica Metabase, agenda Dograh y firma digital DocuSeal)
+- `web/` — página de llamada WebRTC del cliente (`index.html`, `app.js`,
+  `style.css`) y `test-page.html` (prueba básica con token manual)
 - `docs/` — referencias arquitectónicas (`OPEN_SOURCE_REFERENCES.md`) y auditoría de seguridad (`SECURITY_AUDIT.md`)
 - `security/` — ledger de seguridad Cloudflare (`findings.json` y `coverage-ledger.json`)
-- `web/test-page.html` — página de prueba WebRTC básica
+- `scripts/` — `download_models.sh` (descarga del modelo Piper ONNX)
+- `tests/` — suite pytest (pipeline, herramientas Dograh, DocuSeal y fixes de seguridad)
 - `n8n/` — documentación del webhook post-llamada
 
 ## Puesta en marcha (prueba)

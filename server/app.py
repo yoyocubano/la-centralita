@@ -10,15 +10,15 @@ Responsabilidades:
 
 import json
 import logging
+import secrets
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, List
+from typing import List
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from livekit import api
 
@@ -79,10 +79,14 @@ def verify_auth_header(authorization: str | None = Header(None)) -> bool:
             status_code=401,
             detail="Formato de Authorization inválido. Formato esperado: Bearer <token>",
         )
-    valid_tokens = get_authorized_tokens()
-    if token not in valid_tokens:
+    if not _is_authorized(token):
         raise HTTPException(status_code=403, detail="Token no autorizado")
     return True
+
+
+def _is_authorized(token: str) -> bool:
+    """Comparación en tiempo constante contra el conjunto de tokens válidos."""
+    return any(secrets.compare_digest(token, valid) for valid in get_authorized_tokens())
 
 # Almacenamiento en memoria para llamadas y leads de la sesión activa
 CALLS_DATABASE: List[dict] = []
@@ -258,8 +262,7 @@ async def monitor_websocket_endpoint(
     token: str = Query(default=""),
 ):
     """Canal bidireccional WebSocket para el Monitor del Cliente con validación de token (H-004)."""
-    valid_tokens = get_authorized_tokens()
-    if not token or token not in valid_tokens:
+    if not token or not _is_authorized(token):
         logger.warning(f"Rechazo de conexión WebSocket no autorizada (H-004)")
         await websocket.close(code=4001, reason="Unauthorized")
         return

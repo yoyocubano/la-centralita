@@ -25,7 +25,10 @@ async def extract_lead(transcript: str) -> dict:
         "messages": [
             {
                 "role": "user",
-                "content": EXTRACTION_PROMPT.format(transcript=transcript),
+                # No usar str.format(): el prompt contiene llaves JSON
+                # literales que format() interpretaría como campos y
+                # lanzaría KeyError antes de llamar a la API.
+                "content": EXTRACTION_PROMPT.replace("{transcript}", transcript),
             }
         ],
         "temperature": 0.1,

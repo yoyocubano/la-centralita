@@ -1,11 +1,8 @@
-import asyncio
-import os
 import pytest
 from pathlib import Path
 from dotenv import load_dotenv
 
 from agent.piper_tts import PiperTTS
-from agent.lead_extract import extract_lead
 from agent.agent import post_to_n8n
 from livekit.api import AccessToken, VideoGrants
 

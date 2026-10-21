@@ -57,14 +57,15 @@ async def book_technical_meeting(
 ) -> str:
     """Registra y confirma la cita en la agenda de WELUX Events."""
     logger.info(
-        "[Dograh Tool] Agendando cita técnica: %s (%s) para %s a las %s",
+        "[Dograh Tool] Agendando cita técnica: %s (%s) · %s · para %s a las %s",
         client_name,
         phone,
+        event_type,
         requested_date,
         requested_time,
     )
     return (
-        f"Reunión técnica confirmada con éxito para {client_name} el {requested_date} a las {requested_time}. "
+        f"Reunión técnica ({event_type}) confirmada con éxito para {client_name} el {requested_date} a las {requested_time}. "
         f"Se ha reservado el slot y notificado al director de producción de WELUX."
     )
 

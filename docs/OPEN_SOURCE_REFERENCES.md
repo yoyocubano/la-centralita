@@ -68,8 +68,8 @@ Arquitectura de referencia para el **Pipeline de Voz con Tool-Calling (MCP)** y 
    - Dograh implementa streaming bidireccional continuo con cancelación de síntesis acústica en cuanto el VAD detecta voz del usuario. Se adoptó este mismo principio en `agent/agent.py` mediante LiveKit Agents 1.8 (`allow_interruptions=True`, `min_interruption_duration=0.2s`).
 2. **Mecanismo de Reserva de Citas por Function Calling**:
    - En lugar de limitarse a anotar la fecha como texto libre, el agente dispone de la capacidad de verificar disponibilidad y agendar la cita directamente en la llamada:
-     - `check_calendar_slot(date, time)`
-     - `book_calendar_appointment(client_name, phone, event_type, date, time)`
+     - `check_calendar_availability(date)`
+     - `book_technical_meeting(client_name, phone, event_type, requested_date, requested_time)`
    - El guion de Sofía (`agent/prompts.py`) adopta las pautas de confirmación oral de Dograh: proponer dos opciones horarias concretas (*"¿Te vendría mejor el martes por la tarde a las 16:30 o prefieres el jueves por la mañana?"*) para acelerar el cierre.
 3. **Sincronización Bidireccional de Citas**:
    - Las citas agendadas por Sofía se reflejan instantáneamente en la pestaña **Agenda** del panel, generando enlaces directos con un clic a Google Calendar / Outlook y disparando recordatorios a n8n.
