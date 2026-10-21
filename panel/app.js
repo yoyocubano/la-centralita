@@ -222,7 +222,7 @@ function initBackendWebSocket() {
 
     backendSocket.onopen = () => {
       isBackendConnected = true;
-      console.log("[Monitor] Conectado al backend WebSocket seguro:", wsUrl);
+      console.log("[Monitor] Conectado al backend WebSocket seguro."); // no registrar wsUrl: lleva el token
       updateConnectionPill("BACKEND CONECTADO", "ok", "< 25 ms RTT");
     };
 
@@ -376,16 +376,6 @@ function loadLiveCallInitialStream() {
     appendStreamTurn(LIVE_CALL_SCRIPT[i]);
   }
   streamIndex = 4;
-}
-
-function escapeHtml(str) {
-  if (str === null || str === undefined) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }
 
 function appendStreamTurn(turn) {
