@@ -6,3 +6,9 @@ livekit-plugins-silero
 livekit-api
 python-dotenv
 piper-tts
+# Importadas directamente por agent/post_call.py (aiohttp, openai) y por
+# el fallback HTTP de agent/piper_tts.py (soundfile): sin declararlas, una
+# instalación limpia desde este archivo rompía al importar el worker.
+aiohttp
+openai
+soundfile
