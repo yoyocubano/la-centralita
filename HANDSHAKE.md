@@ -56,7 +56,7 @@ El cliente o prospecto llama → el agente conversa de forma natural y ágil 24/
 | STT | Deepgram Nova-3 | 🟡 cuenta en creación (bloqueo por reCAPTCHA) |
 | LLM | DeepSeek (cliente OpenAI-compatible) | 🟡 cuenta en creación (esperando credencial/código) |
 | TTS | Piper (local, open source, $0) | ✅ RESUELTO (2026-10-01) adapter verificado en livekit-agents 1.8.3 |
-| Post-llamada | n8n webhook | ✅ `https://weluxdigitalservices.app.n8n.cloud/webhook/centralita-test` (HTTP 200 verificado) |
+| Post-llamada | n8n webhook | ✅ `https://tu-instancia-n8n.com/webhook/tu-secret-path-aqui` (HTTP 200 verificado) |
 | Canal de prueba | Página web GitHub Pages (sin número) | ✅ https://yoyocubano.github.io/la-centralita/ |
 
 ## 4. Tablero Fase 1 — criterio de salida
