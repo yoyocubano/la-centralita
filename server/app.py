@@ -10,12 +10,13 @@ Responsabilidades:
 
 import json
 import logging
+import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List
 
-from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -54,11 +55,16 @@ ALLOWED_EVENT_KEYS = {"type", "call_id", "timestamp", "status", "room", "duratio
 
 
 def get_authorized_tokens() -> set[str]:
-    """Conjunto de tokens válidos para autenticación interna."""
+    """Conjunto de tokens válidos para autenticación interna.
+
+    LC-0: las credenciales salen SOLO del entorno del servidor
+    (CENTRALITA_AUTH_TOKEN y, como credencial interna de máquina,
+    LIVEKIT_API_SECRET). Ningún token válido vive en el código: el
+    literal que antes se aceptaba aquí quedó revocado al retirarlo.
+    """
     tokens = {
         Config.AUTH_TOKEN,
         Config.LIVEKIT_API_SECRET,
-        "centralita-secure-token-2026",
     }
     return {t for t in tokens if t}
 
@@ -126,8 +132,10 @@ async def get_status():
     return {
         "status": "ready" if all(checks.values()) else "needs_configuration",
         "services": checks,
-        "livekit_url": Config.LIVEKIT_URL or "No configurado",
-        "n8n_webhook": Config.N8N_WEBHOOK_URL or "No configurado",
+        # LC-2: el estado público no revela URLs (la del webhook de n8n es
+        # una URL-capacidad: quien la conoce puede inyectar leads falsos).
+        "livekit_configured": bool(Config.LIVEKIT_URL),
+        "n8n_configured": bool(Config.N8N_WEBHOOK_URL),
         "monitors_connected": len(monitor_hub.active_connections),
     }
 
@@ -180,6 +188,68 @@ async def get_token(
         "room": room,
         "identity": client_id,
     }
+
+
+# ---------------------------------------------------------------------------
+# Emisión pública de tokens para la página web de llamadas (LC-0).
+# La página pública no puede guardar la credencial maestra: este endpoint
+# emite tokens de LiveKit de corta duración (10 min), solo para las salas
+# permitidas y con límite de emisión por IP. La credencial maestra sigue
+# siendo necesaria para /api/token, el monitor y los eventos.
+# ---------------------------------------------------------------------------
+PUBLIC_TOKEN_TTL_MINUTES = 10
+PUBLIC_TOKEN_MAX_PER_HOUR = 30
+_public_token_log: dict[str, list[float]] = {}
+
+
+def _check_public_token_rate_limit(client_ip: str) -> None:
+    now = time.monotonic()
+    recent = [t for t in _public_token_log.get(client_ip, []) if now - t < 3600]
+    if len(recent) >= PUBLIC_TOKEN_MAX_PER_HOUR:
+        raise HTTPException(
+            status_code=429,
+            detail="Demasiadas solicitudes de token desde esta conexión. Inténtalo de nuevo más tarde.",
+        )
+    recent.append(now)
+    _public_token_log[client_ip] = recent
+
+
+@app.get("/api/token/public")
+async def get_public_token(
+    request: Request,
+    room: str = Query(default="centralita-test"),
+    name: str = Query(default="Cliente Web"),
+):
+    """Emite un token de LiveKit efímero para la página pública de llamadas."""
+    if room not in ALLOWED_ROOMS:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Acceso denegado: la sala '{room}' no está autorizada. Salas permitidas: {', '.join(sorted(ALLOWED_ROOMS))}",
+        )
+    _check_public_token_rate_limit(request.client.host if request.client else "desconocida")
+    if not Config.LIVEKIT_API_KEY or not Config.LIVEKIT_API_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="LIVEKIT_API_KEY y LIVEKIT_API_SECRET no están configuradas en el servidor.",
+        )
+    client_id = f"cliente-{uuid.uuid4().hex[:6]}"
+    token = (
+        api.AccessToken(Config.LIVEKIT_API_KEY, Config.LIVEKIT_API_SECRET)
+        .with_identity(client_id)
+        .with_name(name)
+        .with_ttl(timedelta(minutes=PUBLIC_TOKEN_TTL_MINUTES))
+        .with_grants(
+            api.VideoGrants(
+                room_join=True,
+                room=room,
+                can_publish=True,
+                can_subscribe=True,
+                can_publish_data=True,
+            )
+        )
+        .to_jwt()
+    )
+    return {"token": token, "url": Config.LIVEKIT_URL, "room": room, "identity": client_id}
 
 
 @app.websocket("/ws/monitor")
@@ -249,20 +319,23 @@ async def receive_call_event(
 
 
 @app.get("/api/calls")
-async def get_calls():
-    """Devuelve el historial de llamadas registradas."""
+async def get_calls(authorization: str | None = Header(None)):
+    """Devuelve el historial de llamadas registradas (LC-1: exige autenticación)."""
+    verify_auth_header(authorization)
     return {"calls": CALLS_DATABASE, "count": len(CALLS_DATABASE)}
 
 
 @app.get("/api/leads")
-async def get_leads():
-    """Devuelve la bandeja de leads extraídos."""
+async def get_leads(authorization: str | None = Header(None)):
+    """Devuelve la bandeja de leads extraídos (LC-1: exige autenticación)."""
+    verify_auth_header(authorization)
     return {"leads": LEADS_DATABASE, "count": len(LEADS_DATABASE)}
 
 
 @app.post("/api/test-webhook")
-async def test_webhook():
-    """Envía un lead de prueba simulado directamente a n8n para verificar el flujo."""
+async def test_webhook(authorization: str | None = Header(None)):
+    """Envía un lead de prueba simulado directamente a n8n para verificar el flujo (LC-3: exige autenticación)."""
+    verify_auth_header(authorization)
     processor = PostCallProcessor()
     sample_transcript = [
         {"role": "assistant", "text": "¡Hola! Gracias por llamar a WELUX Events en Luxemburgo. Soy Sofía, ¿en qué podemos asesorarte hoy?"},
