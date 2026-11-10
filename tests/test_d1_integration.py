@@ -170,3 +170,35 @@ def test_appointments_from_d1(client, auth_headers, fake_d1):
     fake_d1.appointments.append({"id": "a1", "client_name": "Ana", "status": "PENDIENTE_CONFIRMACION"})
     body = client.get("/api/appointments", headers=auth_headers).json()
     assert body["source"] == "cloudflare_d1" and body["count"] == 1
+
+
+def test_d1_gateway_sends_own_user_agent(monkeypatch):
+    """Regresión (bbffe16): Cloudflare bloquea el User-Agent por defecto de urllib
+    con 403 (error 1010). El gateway debe enviar siempre su User-Agent propio."""
+    import json as _json
+    import urllib.request as _urlreq
+
+    captured = {}
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return _json.dumps({"db": True}).encode("utf-8")
+
+    def fake_urlopen(req, timeout=None):
+        captured["req"] = req
+        return FakeResp()
+
+    monkeypatch.setattr(_urlreq, "urlopen", fake_urlopen)
+    gw = D1Gateway(url="https://gateway.example.com", secret="s" * 32, tenant="welux")
+    assert gw._request_blocking("GET", "/v1/health", None, None) == {"db": True}
+    req = captured["req"]
+    assert req.get_header("User-agent") == "la-centralita-backend/1.0"
+    assert not req.get_header("User-agent").startswith("Python-urllib")
+    assert req.get_header("Authorization") == "Bearer " + "s" * 32
+    assert req.get_header("X-tenant-id") == "welux"
