@@ -1,0 +1,29 @@
+# CI: pruebas automatizadas sin claves (solo stdlib) — La Centralita.
+#
+# Corre la suite tests/test_sin_claves.py (22 tests) en cada push y en
+# cada pull request. Sin LIVEKIT_URL, sin DEEPGRAM_API_KEY, sin
+# DEEPSEEK_API_KEY, sin red y sin dependencias extra: solo Python 3.12
+# de la librería estándar. La suite ya cubre Config.validate(),
+# extract_lead() con HTTP simulado, prompts, modo demo del panel y
+# ausencia de secretos en los archivos servidos.
+#
+# No gasta nada: repositorio público, minutos de Actions gratuitos.
+# Rama: feature/ci-tests-sin-claves (ciclo de mejora continua, 12/11/2026;
+# continúa la suite sin claves del 11/11 en feature/tests-centralita).
+name: tests-sin-claves
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests-sin-claves:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Suite sin claves (stdlib, sin red)
+        run: python3 -m unittest tests.test_sin_claves -v
