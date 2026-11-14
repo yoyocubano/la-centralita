@@ -61,6 +61,16 @@ MAX_STORED_CALLS = 500
 MAX_STORED_LEADS = 500
 PUBLIC_TOKEN_LOG_MAX_IPS = 1000
 
+# Límites de tamaño de entrada (endurecimiento): un solo evento gigante
+# puede agotar la RAM aunque los historiales tengan tope (500 registros
+# enormes siguen siendo enormes), y un nombre gigante infla el JWT del
+# token. Sin estos topes, un cliente autenticado (o cualquiera en el
+# endpoint público) puede tumbar el proceso con un solo POST.
+MAX_EVENT_JSON_BYTES = 65536  # 64 KiB por evento de llamada
+MAX_STRING_FIELD_CHARS = 8192  # 8 KiB por campo de texto del evento
+MAX_LIST_ITEMS = 200  # p. ej. turnos máximos de una transcripción
+MAX_NAME_CHARS = 100  # nombre/identidad máximos en los tokens
+
 
 def get_authorized_tokens() -> set[str]:
     """Conjunto de tokens válidos para autenticación interna.
@@ -109,6 +119,63 @@ def _append_capped(database: List[dict], item: dict, max_items: int) -> None:
     database.append(item)
     if len(database) > max_items:
         del database[:-max_items]
+
+
+def _check_value_size(value, depth: int = 0) -> None:
+    """Rechaza (400) campos de texto o listas desproporcionados, recursivo.
+
+    Cubre la transcripción (lista de turnos con texto) y el lead (dict
+    con nombre, teléfono, detalles...): ningún campo puede pasar de
+    MAX_STRING_FIELD_CHARS ni ninguna lista de MAX_LIST_ITEMS, y la
+    anidación no pasa de 4 niveles.
+    """
+    if depth > 4:
+        raise HTTPException(status_code=400, detail="Payload demasiado anidado.")
+    if isinstance(value, str):
+        if len(value) > MAX_STRING_FIELD_CHARS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Campo de texto demasiado largo (máximo {MAX_STRING_FIELD_CHARS} caracteres).",
+            )
+    elif isinstance(value, list):
+        if len(value) > MAX_LIST_ITEMS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Lista demasiado larga (máximo {MAX_LIST_ITEMS} elementos).",
+            )
+        for item in value:
+            _check_value_size(item, depth + 1)
+    elif isinstance(value, dict):
+        for item in value.values():
+            _check_value_size(item, depth + 1)
+
+
+def _validate_event_payload(event: dict) -> None:
+    """Rechaza eventos de llamada desproporcionados antes de guardarlos.
+
+    Primero el tamaño total serializado (413 si pasa de 64 KiB) y luego
+    campo por campo (400). Se llama después de la whitelist de claves:
+    un evento con claves no permitidas sigue siendo 400 por ese motivo.
+    """
+    try:
+        size = len(json.dumps(event, ensure_ascii=False).encode("utf-8"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Evento no serializable como JSON.")
+    if size > MAX_EVENT_JSON_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Evento demasiado grande (máximo {MAX_EVENT_JSON_BYTES} bytes).",
+        )
+    _check_value_size(event)
+
+
+def _validate_token_name(name: str, field: str = "name") -> None:
+    """Rechaza (400) nombres/identidades que inflarían el JWT del token."""
+    if len(name) > MAX_NAME_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El campo '{field}' es demasiado largo (máximo {MAX_NAME_CHARS} caracteres).",
+        )
 
 
 class MonitorConnectionManager:
@@ -179,6 +246,10 @@ async def get_token(
             status_code=403,
             detail=f"Acceso denegado: la sala '{room}' no está autorizada. Salas permitidas: {', '.join(sorted(ALLOWED_ROOMS))}",
         )
+
+    # 3. Acotar nombre e identidad: un texto gigante infla el JWT.
+    _validate_token_name(identity, "identity")
+    _validate_token_name(name, "name")
 
     if not Config.LIVEKIT_API_KEY or not Config.LIVEKIT_API_SECRET:
         raise HTTPException(
@@ -260,6 +331,9 @@ async def get_public_token(
             status_code=403,
             detail=f"Acceso denegado: la sala '{room}' no está autorizada. Salas permitidas: {', '.join(sorted(ALLOWED_ROOMS))}",
         )
+    # El nombre se valida antes del rate-limit: una petición inválida
+    # no consume cuota de la IP.
+    _validate_token_name(name, "name")
     _check_public_token_rate_limit(request.client.host if request.client else "desconocida")
     if not Config.LIVEKIT_API_KEY or not Config.LIVEKIT_API_SECRET:
         raise HTTPException(
@@ -337,6 +411,10 @@ async def receive_call_event(
             status_code=400,
             detail=f"Payload contiene claves no permitidas: {', '.join(sorted(extra_keys))}",
         )
+
+    # 3. Validar tamaño de entrada: un solo evento gigante no debe
+    # poder agotar la RAM aunque los historiales tengan tope.
+    _validate_event_payload(event)
 
     event_type = event["type"]
     event["server_timestamp"] = datetime.now(timezone.utc).isoformat()
