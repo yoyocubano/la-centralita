@@ -1,19 +1,23 @@
 # CI: pruebas automatizadas sin claves (solo stdlib) — La Centralita.
 #
-# Corre las suites tests/test_sin_claves.py (22 tests) y
-# tests/test_servidor_limites.py (8 tests) en cada push y en cada pull
+# Corre las suites tests/test_sin_claves.py (22 tests),
+# tests/test_servidor_limites.py (8 tests) y
+# tests/test_validacion_entrada.py (11 tests) en cada push y en cada pull
 # request. Sin LIVEKIT_URL, sin DEEPGRAM_API_KEY, sin DEEPSEEK_API_KEY,
 # sin red y sin dependencias extra: solo Python 3.12 de la librería
 # estándar. Las suites cubren Config.validate(), extract_lead() con HTTP
 # simulado, prompts, modo demo del panel, ausencia de secretos en los
-# archivos servidos, y los topes de memoria del servidor (historiales y
-# registro de rate-limit del token público).
+# archivos servidos, los topes de memoria del servidor (historiales y
+# registro de rate-limit del token público) y la validación de tamaño de
+# entrada (eventos y nombres de token).
 #
 # No gasta nada: repositorio público, minutos de Actions gratuitos.
 # Rama: feature/ci-tests-sin-claves (ciclo de mejora continua, 12/11/2026;
 # continúa la suite sin claves del 11/11 en feature/tests-centralita).
 # Ampliada el 13/11/2026 (feature/limites-memoria-servidor) con la suite
 # de límites de memoria del servidor.
+# Ampliada el 14/11/2026 (feature/validacion-entrada-servidor) con la
+# suite de validación de tamaño de entrada.
 name: tests-sin-claves
 
 on:
@@ -30,4 +34,4 @@ jobs:
         with:
           python-version: "3.12"
       - name: Suites sin claves (stdlib, sin red)
-        run: python3 -m unittest tests.test_sin_claves tests.test_servidor_limites -v
+        run: python3 -m unittest tests.test_sin_claves tests.test_servidor_limites tests.test_validacion_entrada -v
