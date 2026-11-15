@@ -49,6 +49,68 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PANEL_DIR = PROJECT_ROOT / "panel"
 WEB_DIR = PROJECT_ROOT / "web"
 
+# Cabeceras de seguridad (endurecimiento): el servidor no enviaba
+# ninguna; un navegador que cargara el panel o consumiera la API no
+# tenía protección contra MIME-sniffing ni clickjacking. Middleware
+# ASGI puro (sin Starlette) para que funcione con FastAPI y siga siendo
+# importable en los tests sin claves, donde fastapi es un stub y
+# add_middleware es un no-op.
+SECURITY_HEADERS = {
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "SAMEORIGIN",
+    "referrer-policy": "no-referrer",
+}
+API_NO_STORE_PREFIXES = ("/api/", "/ws/")
+
+
+class SecurityHeadersMiddleware:
+    """Añade cabeceras de seguridad a cada respuesta HTTP.
+
+    - X-Content-Type-Options: nosniff — el navegador no interpreta un
+      JSON como HTML/JS aunque el Content-Type venga mal.
+    - X-Frame-Options: SAMEORIGIN — el panel no se puede incrustar en
+      un iframe de otro origen (clickjacking); en el mismo origen sí.
+    - Referrer-Policy: no-referrer — la URL del panel no se filtra en
+      las peticiones que salen de él.
+    - Cache-Control: no-store solo en /api/* y /ws/*: las respuestas
+      de la API y del monitor llevan datos vivos y no deben quedar en
+      cachés intermedias; los archivos estáticos del panel conservan
+      su caché normal.
+
+    No pisa una cabecera que la respuesta ya traiga (p. ej. si un día
+    StaticFiles o FastAPI fijan una): la existente manda. Las
+    conexiones WebSocket pasan sin tocarse.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path", "")
+        needs_no_store = path.startswith(API_NO_STORE_PREFIXES)
+
+        async def send_with_headers(message):
+            if message.get("type") == "http.response.start":
+                headers = [(k, v) for k, v in message.get("headers", [])]
+                present = {k.lower() for k, _ in headers}
+                for name, value in SECURITY_HEADERS.items():
+                    if name.encode("latin-1") not in present:
+                        headers.append(
+                            (name.encode("latin-1"), value.encode("latin-1"))
+                        )
+                if needs_no_store and b"cache-control" not in present:
+                    headers.append((b"cache-control", b"no-store"))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # Constantes de seguridad y autenticación (H-002, H-003, H-004)
 ALLOWED_ROOMS = {"centralita-test", "centralita-demo"}
 ALLOWED_EVENT_KEYS = {"type", "call_id", "timestamp", "status", "room", "duration", "transcript", "lead", "agent"}
