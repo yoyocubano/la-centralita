@@ -109,6 +109,99 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 
+class RequestBodySizeLimitMiddleware:
+    """Rechaza (413) cuerpos HTTP desproporcionados antes de parsearlos.
+
+    - Solo /api/* con método POST/PUT/PATCH: el panel estático no
+      recibe cuerpos y los GET no llevan.
+    - Dos defensas: si Content-Length ya declara más del tope, 413
+      inmediato sin leer nada; si no, cuenta los bytes mientras lee
+      (cubre chunked) y 413 en cuanto pasa del tope.
+    - La app interior nunca se invoca con un cuerpo rechazado y
+      recibe el cuerpo intacto cuando pasa (replay del búfer).
+
+    ASGI puro (sin Starlette), como SecurityHeadersMiddleware, para
+    seguir siendo importable en los tests sin claves.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        method = scope.get("method", "GET").upper()
+        path = scope.get("path", "")
+        if method not in ("POST", "PUT", "PATCH") or not path.startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+        headers = {k.lower(): v for k, v in scope.get("headers", [])}
+        declared = headers.get(b"content-length")
+        if declared is not None:
+            try:
+                if int(declared) > MAX_REQUEST_BODY_BYTES:
+                    await self._send_413(send)
+                    return
+            except ValueError:
+                # Content-Length no numérico: no fiarse de él; el
+                # conteo real de abajo manda (h11/uvicorn además lo
+                # rechaza antes de llegar aquí en despliegue real).
+                pass
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message.get("type") == "http.disconnect":
+                return
+            if message.get("type") != "http.request":
+                continue
+            body.extend(message.get("body", b""))
+            if len(body) > MAX_REQUEST_BODY_BYTES:
+                await self._send_413(send)
+                return
+            if not message.get("more_body", False):
+                break
+        sent = False
+
+        async def receive_replay():
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {
+                    "type": "http.request",
+                    "body": bytes(body),
+                    "more_body": False,
+                }
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await self.app(scope, receive_replay, send)
+
+    async def _send_413(self, send):
+        payload = json.dumps(
+            {
+                "detail": (
+                    "Cuerpo de la petición demasiado grande "
+                    f"(máximo {MAX_REQUEST_BODY_BYTES} bytes)."
+                )
+            }
+        ).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 413,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(payload)).encode("latin-1")),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": payload})
+
+
+# Se registra ANTES que el de cabeceras: en Starlette el último
+# middleware registrado es el más externo, así el 413 de este
+# middleware también sale con las cabeceras de seguridad.
+app.add_middleware(RequestBodySizeLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 # Constantes de seguridad y autenticación (H-002, H-003, H-004)
@@ -132,6 +225,15 @@ MAX_EVENT_JSON_BYTES = 65536  # 64 KiB por evento de llamada
 MAX_STRING_FIELD_CHARS = 8192  # 8 KiB por campo de texto del evento
 MAX_LIST_ITEMS = 200  # p. ej. turnos máximos de una transcripción
 MAX_NAME_CHARS = 100  # nombre/identidad máximos en los tokens
+
+# Límite de tamaño del cuerpo HTTP (endurecimiento): la validación de
+# arriba mide el evento DESPUÉS de parsear el JSON, así que un cuerpo
+# gigante ya estaba en memoria antes de rechazarlo. El middleware
+# RequestBodySizeLimitMiddleware mide el cuerpo ANTES de que FastAPI lo
+# parsee: si pasa de 64 KiB responde 413 sin invocar la app. Lee el
+# cuerpo en un búfer acotado (como mucho el tope + 1 byte) y lo
+# reinyecta, así el límite vale igual con Content-Length y con chunked.
+MAX_REQUEST_BODY_BYTES = 65536  # 64 KiB, igual que MAX_EVENT_JSON_BYTES
 
 
 def get_authorized_tokens() -> set[str]:
