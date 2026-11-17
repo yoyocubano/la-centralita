@@ -235,6 +235,14 @@ MAX_NAME_CHARS = 100  # nombre/identidad máximos en los tokens
 # reinyecta, así el límite vale igual con Content-Length y con chunked.
 MAX_REQUEST_BODY_BYTES = 65536  # 64 KiB, igual que MAX_EVENT_JSON_BYTES
 
+# Paginación del historial (endurecimiento/rendimiento): /api/calls y
+# /api/leads devolvían el historial COMPLETO en cada GET: con el tope
+# de 500 registros y eventos de hasta 64 KiB, una sola respuesta podía
+# rozar los 32 MB. Ahora devuelven una página (por defecto las 50 más
+# recientes) con el total, y limit/offset validados.
+DEFAULT_HISTORY_LIMIT = 50
+MAX_HISTORY_LIMIT = 100
+
 
 def get_authorized_tokens() -> set[str]:
     """Conjunto de tokens válidos para autenticación interna.
@@ -340,6 +348,46 @@ def _validate_token_name(name: str, field: str = "name") -> None:
             status_code=400,
             detail=f"El campo '{field}' es demasiado largo (máximo {MAX_NAME_CHARS} caracteres).",
         )
+
+
+def _validate_pagination(limit, offset) -> tuple[int, int]:
+    """Valida limit/offset de /api/calls y /api/leads (400 si no valen).
+
+    - limit: entero entre 1 y MAX_HISTORY_LIMIT (100). Sin tope, un
+      cliente podría pedir los 500 registros de una tacada y llevarse
+      una respuesta de decenas de MB.
+    - offset: entero mayor o igual que 0.
+    """
+    try:
+        limit = int(limit)
+        offset = int(offset)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail="Los parámetros 'limit' y 'offset' deben ser números enteros.",
+        )
+    if limit < 1 or limit > MAX_HISTORY_LIMIT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El parámetro 'limit' debe estar entre 1 y {MAX_HISTORY_LIMIT}.",
+        )
+    if offset < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="El parámetro 'offset' no puede ser negativo.",
+        )
+    return limit, offset
+
+
+def _paginate_history(items, limit: int, offset: int):
+    """Página del historial, de la más reciente a la más antigua.
+
+    El monitor quiere lo último, no lo primero: la página por defecto
+    (limit 50, offset 0) son los 50 registros más recientes. No muta
+    la lista original (reversed sobre una copia).
+    """
+    recientes = list(reversed(items))
+    return recientes[offset:offset + limit]
 
 
 class MonitorConnectionManager:
@@ -594,17 +642,53 @@ async def receive_call_event(
 
 
 @app.get("/api/calls")
-async def get_calls(authorization: str | None = Header(None)):
-    """Devuelve el historial de llamadas registradas (LC-1: exige autenticación)."""
+async def get_calls(
+    authorization: str | None = Header(None),
+    limit: int = Query(default=DEFAULT_HISTORY_LIMIT),
+    offset: int = Query(default=0),
+):
+    """Devuelve el historial de llamadas registradas (LC-1: exige autenticación).
+
+    Paginado: por defecto las 50 llamadas más recientes; 'limit' entre
+    1 y 100, 'offset' desde 0. La respuesta trae la página en 'calls',
+    'count' (registros en esta página), 'total' (registros en el
+    historial), 'limit' y 'offset'. Antes devolvía el historial
+    completo: hasta 500 registros de 64 KiB en una sola respuesta.
+    """
     verify_auth_header(authorization)
-    return {"calls": CALLS_DATABASE, "count": len(CALLS_DATABASE)}
+    limit, offset = _validate_pagination(limit, offset)
+    pagina = _paginate_history(CALLS_DATABASE, limit, offset)
+    return {
+        "calls": pagina,
+        "count": len(pagina),
+        "total": len(CALLS_DATABASE),
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @app.get("/api/leads")
-async def get_leads(authorization: str | None = Header(None)):
-    """Devuelve la bandeja de leads extraídos (LC-1: exige autenticación)."""
+async def get_leads(
+    authorization: str | None = Header(None),
+    limit: int = Query(default=DEFAULT_HISTORY_LIMIT),
+    offset: int = Query(default=0),
+):
+    """Devuelve la bandeja de leads extraídos (LC-1: exige autenticación).
+
+    Paginado igual que /api/calls: por defecto los 50 leads más
+    recientes; 'limit' entre 1 y 100, 'offset' desde 0. La respuesta
+    trae la página en 'leads', 'count', 'total', 'limit' y 'offset'.
+    """
     verify_auth_header(authorization)
-    return {"leads": LEADS_DATABASE, "count": len(LEADS_DATABASE)}
+    limit, offset = _validate_pagination(limit, offset)
+    pagina = _paginate_history(LEADS_DATABASE, limit, offset)
+    return {
+        "leads": pagina,
+        "count": len(pagina),
+        "total": len(LEADS_DATABASE),
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @app.post("/api/test-webhook")
