@@ -243,6 +243,18 @@ MAX_REQUEST_BODY_BYTES = 65536  # 64 KiB, igual que MAX_EVENT_JSON_BYTES
 DEFAULT_HISTORY_LIMIT = 50
 MAX_HISTORY_LIMIT = 100
 
+# Rate-limit de /api/call-event (endurecimiento): el endpoint es el
+# único de escritura autenticado sin tope por IP. Un worker en bucle,
+# un reintento desbocado o un token filtrado puede inundar el hub: cada
+# evento se difunde a todos los monitores y se guarda en el historial.
+# 60 eventos por minuto y por IP es generoso (una llamada normal emite
+# un puñado: inicio, turnos, fin); al pasarlo, 429. La ventana es de
+# 60 segundos y el registro tiene el mismo tope de IPs que el del
+# token público (1000): ni el registro puede crecer sin límite.
+CALL_EVENT_MAX_PER_MINUTE = 60
+CALL_EVENT_WINDOW_SECONDS = 60
+CALL_EVENT_LOG_MAX_IPS = 1000
+
 
 def get_authorized_tokens() -> set[str]:
     """Conjunto de tokens válidos para autenticación interna.
@@ -505,30 +517,50 @@ async def get_token(
 PUBLIC_TOKEN_TTL_MINUTES = 10
 PUBLIC_TOKEN_MAX_PER_HOUR = 30
 _public_token_log: dict[str, list[float]] = {}
+_call_event_log: dict[str, list[float]] = {}
+
+
+def _check_rate_limit(log, client_ip, max_per_window, window_seconds, max_ips, detail):
+    """Tope por IP y por ventana deslizante, con poda y tope de IPs.
+
+    - Las marcas fuera de la ventana no cuentan; las IPs sin actividad
+      en la ventana se podan del registro (no crece con IPs que no vuelven).
+    - Si la IP ya llegó al tope dentro de la ventana: 429.
+    - Con el registro lleno de IPs, entra la nueva y sale la de
+      actividad más antigua: el registro nunca pasa de max_ips.
+    """
+    now = time.monotonic()
+    for ip in [ip for ip, stamps in log.items()
+               if not stamps or now - stamps[-1] >= window_seconds]:
+        del log[ip]
+    recent = [t for t in log.get(client_ip, []) if now - t < window_seconds]
+    if len(recent) >= max_per_window:
+        raise HTTPException(status_code=429, detail=detail)
+    recent.append(now)
+    if client_ip not in log and len(log) >= max_ips:
+        # Registro lleno: expulsar la IP con la actividad más antigua.
+        oldest_ip = min(
+            log,
+            key=lambda ip: log[ip][-1] if log[ip] else 0,
+        )
+        del log[oldest_ip]
+    log[client_ip] = recent
 
 
 def _check_public_token_rate_limit(client_ip: str) -> None:
-    now = time.monotonic()
-    # Poda de IPs sin actividad en la última hora: el registro no crece
-    # sin límite con IPs que ya no vuelven.
-    for ip in [ip for ip, stamps in _public_token_log.items()
-               if not stamps or now - stamps[-1] >= 3600]:
-        del _public_token_log[ip]
-    recent = [t for t in _public_token_log.get(client_ip, []) if now - t < 3600]
-    if len(recent) >= PUBLIC_TOKEN_MAX_PER_HOUR:
-        raise HTTPException(
-            status_code=429,
-            detail="Demasiadas solicitudes de token desde esta conexión. Inténtalo de nuevo más tarde.",
-        )
-    recent.append(now)
-    if client_ip not in _public_token_log and len(_public_token_log) >= PUBLIC_TOKEN_LOG_MAX_IPS:
-        # Registro lleno: expulsar la IP con la actividad más antigua.
-        oldest_ip = min(
-            _public_token_log,
-            key=lambda ip: _public_token_log[ip][-1] if _public_token_log[ip] else 0,
-        )
-        del _public_token_log[oldest_ip]
-    _public_token_log[client_ip] = recent
+    _check_rate_limit(
+        _public_token_log, client_ip,
+        PUBLIC_TOKEN_MAX_PER_HOUR, 3600, PUBLIC_TOKEN_LOG_MAX_IPS,
+        "Demasiadas solicitudes de token desde esta conexión. Inténtalo de nuevo más tarde.",
+    )
+
+
+def _check_call_event_rate_limit(client_ip: str) -> None:
+    _check_rate_limit(
+        _call_event_log, client_ip,
+        CALL_EVENT_MAX_PER_MINUTE, CALL_EVENT_WINDOW_SECONDS, CALL_EVENT_LOG_MAX_IPS,
+        "Demasiados eventos de llamada desde esta conexión. Inténtalo de nuevo más tarde.",
+    )
 
 
 @app.get("/api/token/public")
@@ -607,9 +639,10 @@ async def monitor_websocket_endpoint(
 @app.post("/api/call-event")
 async def receive_call_event(
     event: dict,
+    request: Request = None,
     authorization: str | None = Header(None),
 ):
-    """Recibe eventos del worker de voz con autenticación y validación de claves (H-003)."""
+    """Recibe eventos del worker de voz con autenticación, validación de claves y rate-limit por IP (H-003)."""
     # 1. Requerir header Authorization
     verify_auth_header(authorization)
 
@@ -627,6 +660,20 @@ async def receive_call_event(
     # 3. Validar tamaño de entrada: un solo evento gigante no debe
     # poder agotar la RAM aunque los historiales tengan tope.
     _validate_event_payload(event)
+
+    # 4. Rate-limit por IP: un emisor autenticado en bucle (worker con
+    # bug, reintento desbocado, token filtrado) no debe poder inundar
+    # el hub: cada evento se difunde a todos los monitores y se guarda.
+    # Va DESPUÉS de validar: una petición inválida (400) no consume
+    # cuota, igual que en el token público. Solo se aplica cuando hay
+    # una IP real de cliente: sin request (llamada directa, como en
+    # las suites viejas) no hay IP a la que atribuir el consumo y
+    # todas las llamadas compartirían un mismo cubo — en HTTP real
+    # FastAPI siempre inyecta el request, así que el tope cubre todo
+    # el tráfico de verdad.
+    client_ip = request.client.host if request is not None and request.client else None
+    if client_ip:
+        _check_call_event_rate_limit(client_ip)
 
     event_type = event["type"]
     event["server_timestamp"] = datetime.now(timezone.utc).isoformat()
