@@ -255,6 +255,11 @@ CALL_EVENT_MAX_PER_MINUTE = 60
 CALL_EVENT_WINDOW_SECONDS = 60
 CALL_EVENT_LOG_MAX_IPS = 1000
 
+# Límite de conexiones WebSocket simultáneas en el monitor (endurecimiento):
+# cada monitor queda abierto de forma indefinida y recibe cada broadcast;
+# un bucle de reconexión o un token filtrado no debe agotar descriptores ni RAM.
+MAX_MONITOR_CONNECTIONS = 50
+
 
 def get_authorized_tokens() -> set[str]:
     """Conjunto de tokens válidos para autenticación interna.
@@ -408,7 +413,17 @@ class MonitorConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> bool:
+        if len(self.active_connections) >= MAX_MONITOR_CONNECTIONS:
+            logger.warning(
+                f"Límite de monitores conectados alcanzado ({MAX_MONITOR_CONNECTIONS}); rechazando conexión WebSocket"
+            )
+            await websocket.close(
+                code=1013,
+                reason=f"Demasiados monitores conectados (máximo {MAX_MONITOR_CONNECTIONS}).",
+            )
+            return False
+
         await websocket.accept()
         self.active_connections.append(websocket)
         logger.info(f"Monitor conectado al backend (Total: {len(self.active_connections)})")
@@ -419,6 +434,7 @@ class MonitorConnectionManager:
             "status": "ready" if all(Config.validate().values()) else "standby",
             "message": "Conectado al bus de eventos de La Centralita",
         })
+        return True
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
@@ -615,7 +631,8 @@ async def monitor_websocket_endpoint(
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
-    await monitor_hub.connect(websocket)
+    if not await monitor_hub.connect(websocket):
+        return
     try:
         while True:
             data = await websocket.receive_text()
