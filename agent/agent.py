@@ -9,11 +9,14 @@ Al colgar: extrae el lead estructurado en JSON y lo notifica al webhook de n8n.
 """
 
 import asyncio
+from datetime import datetime, timezone
 import hashlib
 import json
 import logging
 import os
+import re
 import urllib.request
+import uuid
 
 from dotenv import load_dotenv
 
@@ -21,11 +24,13 @@ from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli, 
 from livekit.plugins import deepgram, openai, silero
 
 try:
+    from config import Config
     from prompts import SYSTEM_PROMPT
     from piper_tts import PiperTTS
     from lead_extract import extract_lead
     from post_call import redact_pii
 except ImportError:
+    from .config import Config
     from .prompts import SYSTEM_PROMPT
     from .piper_tts import PiperTTS
     from .lead_extract import extract_lead
@@ -107,6 +112,135 @@ async def post_to_n8n(payload: dict) -> None:
         logger.info("n8n respondió HTTP %s", status)
     except Exception as e:
         logger.error("Error al enviar evento a n8n: %s", e)
+
+
+def get_server_base_url() -> str:
+    """URL base del backend para emitir eventos de llamada al panel."""
+    base = os.getenv("CENTRALITA_SERVER_URL") or Config.SERVER_URL or "http://127.0.0.1:8000"
+    return base.rstrip("/")
+
+
+def get_auth_token() -> str:
+    """Token interno Bearer leído desde el entorno."""
+    return os.getenv("CENTRALITA_AUTH_TOKEN") or Config.AUTH_TOKEN or ""
+
+
+def anonymize_text(text: str, lead: dict | None = None) -> str:
+    """Anonimiza teléfonos/emails con redact_pii y oculta el nombre si se extrajo."""
+    redacted = redact_pii(text or "")
+    if isinstance(lead, dict):
+        nombre = (lead.get("nombre") or "").strip()
+        if len(nombre) >= 2:
+            redacted = re.sub(re.escape(nombre), "[NAME_REDACTED]", redacted, flags=re.IGNORECASE)
+            for token in re.split(r"\s+", nombre):
+                clean = token.strip(".,;:()[]{}\"'")
+                if len(clean) >= 3:
+                    redacted = re.sub(
+                        rf"\b{re.escape(clean)}\b",
+                        "[NAME_REDACTED]",
+                        redacted,
+                        flags=re.IGNORECASE,
+                    )
+    return redacted
+
+
+def build_call_started_payload(
+    call_id: str,
+    room: str,
+    started_at: datetime,
+    agent_name: str,
+) -> dict:
+    """Construye el evento call_started compatible con ALLOWED_EVENT_KEYS."""
+    return {
+        "type": "call_started",
+        "call_id": call_id,
+        "timestamp": started_at.isoformat(),
+        "status": "iniciada",
+        "room": room,
+        "duration": 0,
+        "agent": agent_name,
+    }
+
+
+def build_call_ended_payload(
+    call_id: str,
+    room: str,
+    started_at: datetime,
+    ended_at: datetime,
+    transcript: str,
+    lead: dict | None,
+    lead_hash: str,
+    agent_name: str,
+) -> dict:
+    """Construye el evento call_ended anonimizado (RGPD: sin nombre, teléfono ni email)."""
+    duration_seconds = round(max(0.0, (ended_at - started_at).total_seconds()), 2)
+    redacted_transcript = anonymize_text(transcript, lead)
+    raw_summary = (
+        (lead or {}).get("detalles")
+        or (lead or {}).get("motivo")
+        or (transcript or "")[:300]
+    )
+    resumen_anon = anonymize_text(str(raw_summary), lead)[:500]
+    motivo_raw = (lead or {}).get("motivo")
+    tipo_evento_raw = (lead or {}).get("tipo_evento")
+
+    lead_anon = {
+        "inicio": started_at.isoformat(),
+        "fin": ended_at.isoformat(),
+        "motivo": anonymize_text(str(motivo_raw), lead) if motivo_raw else None,
+        "tipo_evento": anonymize_text(str(tipo_evento_raw), lead) if tipo_evento_raw else None,
+        "fecha_evento": (lead or {}).get("fecha_evento"),
+        "es_lead_valido": bool((lead or {}).get("es_lead_valido", False)),
+        "resumen": resumen_anon,
+        "lead_hash": lead_hash,
+    }
+
+    return {
+        "type": "call_ended",
+        "call_id": call_id,
+        "timestamp": ended_at.isoformat(),
+        "status": "terminada",
+        "room": room,
+        "duration": duration_seconds,
+        "transcript": redacted_transcript,
+        "lead": lead_anon,
+        "agent": agent_name,
+    }
+
+
+async def post_call_event(payload: dict) -> bool:
+    """Emite un evento al endpoint POST /api/call-event sin bloquear la llamada si falla."""
+    token = get_auth_token()
+    event_type = payload.get("type", "desconocido")
+    if not token:
+        logger.warning(
+            "CENTRALITA_AUTH_TOKEN no configurado; salto el envío del evento '%s' al panel.",
+            event_type,
+        )
+        return False
+
+    url = f"{get_server_base_url()}/api/call-event"
+
+    def _do() -> int:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status
+
+    try:
+        status = await asyncio.to_thread(_do)
+        logger.info("Panel respondió HTTP %s para evento '%s'", status, event_type)
+        return 200 <= status < 300
+    except Exception as e:
+        logger.error("Error al enviar evento '%s' al panel (%s): %s", event_type, url, e)
+        return False
 
 
 def transcript_to_text(session: AgentSession) -> str:
@@ -192,13 +326,40 @@ async def entrypoint(ctx: JobContext) -> None:
     agent = CentralitaAgent()
     await session.start(room=ctx.room, agent=agent)
 
+    call_id = f"call-{uuid.uuid4().hex[:12]}"
+    started_at = datetime.now(timezone.utc)
+    agent_name = os.getenv("AGENT_NAME", "Sofía (WELUX Events)")
+    await post_call_event(
+        build_call_started_payload(
+            call_id=call_id,
+            room=ctx.room.name,
+            started_at=started_at,
+            agent_name=agent_name,
+        )
+    )
+
     async def on_shutdown() -> None:
-        logger.info("Llamada terminada: extrayendo lead y enviando a n8n...")
+        logger.info("Llamada terminada: extrayendo lead y notificando al panel y n8n...")
+        ended_at = datetime.now(timezone.utc)
         transcript = transcript_to_text(session)
         lead = await extract_lead(transcript)
-        redacted_transcript = redact_pii(transcript)
+        redacted_transcript = anonymize_text(transcript, lead)
         lead_json = json.dumps(lead or {}, sort_keys=True, ensure_ascii=False)
         lead_hash = hashlib.sha256(lead_json.encode("utf-8")).hexdigest()
+
+        await post_call_event(
+            build_call_ended_payload(
+                call_id=call_id,
+                room=ctx.room.name,
+                started_at=started_at,
+                ended_at=ended_at,
+                transcript=transcript,
+                lead=lead,
+                lead_hash=lead_hash,
+                agent_name=agent_name,
+            )
+        )
+
         await post_to_n8n(
             {
                 "event": "call_ended",

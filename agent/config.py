@@ -33,6 +33,7 @@ class Config:
     N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
 
     # Servidor y autenticación interna
+    SERVER_URL = os.getenv("CENTRALITA_SERVER_URL", "http://127.0.0.1:8000")
     AUTH_TOKEN = os.getenv("CENTRALITA_AUTH_TOKEN", "")
     PORT = int(os.getenv("PORT", "8080"))
     HOST = os.getenv("HOST", "0.0.0.0")

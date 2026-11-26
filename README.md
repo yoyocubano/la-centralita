@@ -44,6 +44,19 @@ otros documentos de seguimiento.
 4. Generar token: `python make_token.py`
 5. Abrir `web/test-page.html`, pegar URL + token, pulsar **Llamar**.
 
+## Estado real vs. simulado (Agente y Panel)
+
+- **Real a partir de ahora:**
+  - El agente real de voz (`agent/agent.py`) emite eventos reales de inicio (`call_started`) y fin (`call_ended`) de llamada hacia `POST /api/call-event`, usando `CENTRALITA_SERVER_URL` (por defecto `http://127.0.0.1:8000`) y `Authorization: Bearer <CENTRALITA_AUTH_TOKEN>`.
+  - Los payloads al panel van **anonimizados según RGPD** (`redact_pii` de `agent/post_call.py` + supresión del nombre del contacto), sin incluir nombre, teléfono ni email, e incluyen `call_id`, `inicio`/`fin`, `duration`, `status` (`iniciada` / `terminada`) y resumen anonimizado. Si el servidor falla o no responde, la llamada continúa sin bloquear el flujo de voz.
+  - El backend (`server/app.py`) guarda el historial en `/api/calls` y `/api/leads` y lo difunde en tiempo real al panel vía `/ws/monitor`.
+  - Al colgar también se mantiene el envío post-llamada al webhook de n8n (`N8N_WEBHOOK_URL`).
+- **Sigue simulado:**
+  - El botón **Simular Llamada Entrante** del panel (`panel/app.js`) en Modo Demo local.
+  - La transcripción incremental turno a turno (`transcript_delta` aún no es emitida en streaming por el worker hacia `/api/call-event`).
+  - Las herramientas Dograh (`check_calendar_availability` / `book_technical_meeting` en `agent/agent.py`) devuelven respuestas mock sin agenda real conectada.
+  - Las vistas del panel sin integración viva (CRM Twenty, analítica Metabase y firma DocuSeal).
+
 ## Reglas
 
 - No tocar el chatbot Rebeca AI. Proyecto separado.
