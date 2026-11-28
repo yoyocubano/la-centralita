@@ -1,0 +1,36 @@
+# CI: pruebas automatizadas sin claves (solo stdlib) — La Centralita.
+#
+# Corre las suites tests/test_e2e_eventos_servidor.py (9 tests) y
+# tests/test_agente_eventos_panel.py (7 tests) en cada push y en cada
+# pull request. Sin LIVEKIT_URL, sin DEEPGRAM_API_KEY, sin
+# DEEPSEEK_API_KEY, sin red y sin dependencias extra: solo Python 3.12 de
+# la libreria estandar. Las suites cubren la cadena completa del lado
+# servidor (POST /api/call-event con call_started y call_ended, guardado
+# en CALLS_DATABASE y LEADS_DATABASE, GET /api/calls y /api/leads,
+# difusion WebSocket a /ws/monitor, 400/401/403, rechazo 4001 sin token,
+# ping/pong y datos recientes) y la emision de eventos reales del agente
+# de voz al panel (payloads, anonimización RGPD, Bearer sin exponer el
+# secreto, tolerancia a fallos). En modo stdlib puro, 1 test se salta
+# (la compatibilidad con fastapi.testclient, que exige fastapi instalado).
+#
+# No gasta nada: repositorio publico, minutos de Actions gratuitos.
+# Rama: feature/tests-e2e-eventos-servidor (ciclo de mejora continua,
+# 28/11/2026; continua la conexion agente real -> panel del 26/11 en
+# feature/agente-eventos-panel).
+name: tests-sin-claves
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests-sin-claves:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Suites sin claves (stdlib, sin red)
+        run: python3 -m unittest tests.test_e2e_eventos_servidor tests.test_agente_eventos_panel -v
