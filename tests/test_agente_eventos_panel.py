@@ -140,6 +140,13 @@ except ImportError:
         silero=_StubSilero,
     )
     _ensure_stub("livekit.rtc", AudioStream=_StubAudioStream)
+    # agent/piper_tts.py importa DEFAULT_API_CONNECT_OPTIONS desde
+    # livekit.agents.types; sin este stub la suite no importa en modo
+    # stdlib puro (sin livekit instalado).
+    _ensure_stub(
+        "livekit.agents.types",
+        DEFAULT_API_CONNECT_OPTIONS=object(),
+    )
     _ensure_stub("livekit", agents=_agents_mod, plugins=_plugins_mod)
 
 import agent.agent as agent_modulo  # noqa: E402
